@@ -67,6 +67,19 @@ const ok = (c, m) => { if (!c) { fails++; console.log('  ✗ FAIL', m); } else c
   await page.keyboard.press('Enter'); await page.waitForTimeout(300);
   const wrongFlash = await page.evaluate(() => document.getElementById('kp-disp').classList.contains('shake'));
   ok(wrongFlash, '輸入錯誤密碼 → 鎖頭震動並顯示紅色');
+  {
+    const lp = await page.evaluate(() => ({ ping: !!window.__HC.G.lurePing, toast: document.getElementById('toasts').textContent.includes('引來了怪物') }));
+    ok(lp.ping && lp.toast, '輸錯密碼 → 顯示「怪物被引來」警告與小地圖橘圈');
+    // 讓玩家躲起來（避免被怪物看見而改為追擊），然後計時：怪物須在 10 秒內走到鎖前
+    await page.evaluate(() => { const G = window.__HC.G; window.__lureT0 = G.sim.t; G.sim.players.get('h').flags |= 2; });
+    const arr = await page.evaluate(async () => {
+      const G = window.__HC.G, sim = G.sim, lk = sim.b.spots.lock[sim.locks[0].spot], m = sim.mon;
+      sim.mon.cool = 0;
+      return await new Promise(res => { const iv = setInterval(() => { const d = Math.hypot(m.x - lk.x, m.z - lk.z); if (d <= 3.3 && Math.abs(m.y - lk.y) < 3) { clearInterval(iv); res(sim.t - window.__lureT0); } if (sim.t - window.__lureT0 > 14) { clearInterval(iv); res(-1); } }, 100); });
+    });
+    ok(arr > 0 && arr <= 10, '怪物在遊戲時間 ' + arr.toFixed(1) + ' 秒內抵達該密碼鎖（要求 ≤ 10 秒）');
+    await page.evaluate(() => { const G = window.__HC.G; G.sim.mon.cool = 1e9; G.sim.mon.st = 'patrol'; G.sim.players.get('h').flags &= ~2; });
+  }
   const monAttract = await page.evaluate(() => window.__HC.G.sim.mon.st);
   // 再輸入正確密碼
   await page.waitForTimeout(500);

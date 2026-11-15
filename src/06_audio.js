@@ -43,6 +43,12 @@ const Sfx = (() => {
     win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.28, 'triangle', 0.2, i * 0.14)); tone(1047, 0.7, 'triangle', 0.18, 0.6); },
     lose() { [392, 330, 262, 196].forEach((f, i) => tone(f, 0.4, 'sawtooth', 0.14, i * 0.22)); },
     click() { tone(520, 0.05, 'square', 0.07); },
+    growl(v = 1) {   // 低沉的嘶吼
+      if (!ctx) return;
+      tone(62, 1.1, 'sawtooth', 0.28 * v, 0, -26); tone(95, 0.9, 'square', 0.1 * v, 0.05, -40);
+      noise(1.0, 0.22 * v, 420, 2, 0, 'lowpass'); noise(0.7, 0.1 * v, 1500, 3, 0.15, 'bandpass');
+    },
+    stomp(v = 1) { if (!ctx) return; tone(48, 0.16, 'sine', 0.32 * v); noise(0.1, 0.12 * v, 220, 1, 0, 'lowpass'); if (Math.random() < 0.4) noise(0.12, 0.05 * v, 900, 4, 0.05, 'bandpass'); },
     place() { tone(440, 0.1, 'triangle', 0.18); tone(880, 0.3, 'sine', 0.2, 0.08); },
     hide() { noise(0.15, 0.1, 500, 1); },
     chat() { tone(740, 0.06, 'sine', 0.08); },

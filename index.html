@@ -355,6 +355,16 @@ const M4 = {
     return out;
   },
 };
+/* 部件變換：T(m) * Ry(yaw) * T(l) * Rz(rz) * Rx(rx) * S(s)（用於會擺動的肢體） */
+M4.part = function (out, mx, my, mz, yaw, lx, ly, lz, rx, rz, s) {
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cx = Math.cos(rx), sx = Math.sin(rx), cz = Math.cos(rz), sz = Math.sin(rz);
+  const mul3 = (A, B) => { const C = new Array(9); for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) C[c * 3 + r] = A[r] * B[c * 3] + A[3 + r] * B[c * 3 + 1] + A[6 + r] * B[c * 3 + 2]; return C; };
+  const Ry = [cy, 0, -sy, 0, 1, 0, sy, 0, cy], Rz = [cz, sz, 0, -sz, cz, 0, 0, 0, 1], Rx = [1, 0, 0, 0, cx, sx, 0, -sx, cx];
+  const R = mul3(Ry, mul3(Rz, Rx));
+  for (let c = 0; c < 3; c++) { out[c * 4] = R[c * 3] * s; out[c * 4 + 1] = R[c * 3 + 1] * s; out[c * 4 + 2] = R[c * 3 + 2] * s; out[c * 4 + 3] = 0; }
+  out[12] = mx + cy * lx + sy * lz; out[13] = my + ly; out[14] = mz - sy * lx + cy * lz; out[15] = 1;
+  return out;
+};
 /* 視線方向：yaw=0 面向 -Z；yaw 增加向左轉 */
 function fwdVec(yaw, pitch) {
   const cp = Math.cos(pitch);
@@ -373,10 +383,11 @@ class Builder {
     this.spots = { code: [], lock: [], ped: [], frog: [], hide: [], spawn: [], patrol: [] };
     this.portals = [];
     this.theme = {};
+    this.jit = 0;         // 顏色微幅隨機（僅植物／石頭／家具使用）；結構類一律 0，避免共平面重疊時閃爍
   }
   box(x0, y0, z0, x1, y1, z1, col, solid = true, emit = 0) {
     const c = hexRgb(col);
-    const j = 1 + (this.rng() - 0.5) * 0.10;
+    const j = this.jit > 0 ? 1 + (this.rng() - 0.5) * this.jit : 1;
     this.boxes.push({
       x0: Math.min(x0, x1), y0: Math.min(y0, y1), z0: Math.min(z0, z1),
       x1: Math.max(x0, x1), y1: Math.max(y0, y1), z1: Math.max(z0, z1),
@@ -392,11 +403,15 @@ class Builder {
   }
   pyr(cx, y0, cz, w, d, h, col, emit = 0) {
     const c = hexRgb(col);
-    const j = 1 + (this.rng() - 0.5) * 0.12;
+    const j = this.jit > 0 ? 1 + (this.rng() - 0.5) * 0.12 : 1;
     this.pyrs.push({ cx, y0, cz, w, d, h, col: [c[0] * j, c[1] * j, c[2] * j], emit });
   }
   /* 沿軸向的牆（含門／窗開口）。gaps: {a,b,y0,y1} 皆為相對牆底的高度與沿牆座標 */
   wall(x0, z0, x1, z1, yb, yt, th, col, gaps, frame) {
+    const sj = this.jit; this.jit = 0;
+    try { this.wall_(x0, z0, x1, z1, yb, yt, th, col, gaps, frame); } finally { this.jit = sj; }
+  }
+  wall_(x0, z0, x1, z1, yb, yt, th, col, gaps, frame) {
     const alongX = Math.abs(z1 - z0) < 1e-6;
     const a0 = alongX ? Math.min(x0, x1) : Math.min(z0, z1);
     const a1 = alongX ? Math.max(x0, x1) : Math.max(z0, z1);
@@ -427,9 +442,10 @@ class Builder {
           if (alongX) this.box(sa, ya, fixed - th / 2 - E - e0, ea, yb2, fixed + th / 2 + E + e0, frame, false);
           else this.box(fixed - th / 2 - E - e0, ya, sa, fixed + th / 2 + E + e0, yb2, ea, frame, false);
         };
-        fb(ga - P, ga, gy0, gy1); fb(gb, gb + P, gy0, gy1);
-        fb(ga - P, gb + P, gy1, gy1 + 0.09);
-        if ((g.y0 || 0) > 0) fb(ga - P, gb + P, gy0 - 0.06, gy0, 0.06);
+        const I = 0.012;   // 向開口內縮 1.2 公分，避免與牆的開口邊共平面而閃爍
+        fb(ga - P, ga + I, gy0, gy1); fb(gb - I, gb + P, gy0, gy1);
+        fb(ga - P, gb + P, gy1 - I, gy1 + 0.09);
+        if ((g.y0 || 0) > 0) fb(ga - P, gb + P, gy0 - 0.06, gy0 + I, 0.06);
       }
     }
   }
@@ -733,6 +749,10 @@ class Nav {
 const H_FLOOR = 3.2, SLAB = 0.3, WT = 0.3, DOORW = 1.8, STAIR_W = 2.6, STAIR_N = 10;
 
 function slabHole(b, x0, z0, x1, z1, y0, y1, col, hole) {
+  const sj = b.jit; b.jit = 0;
+  try { slabHole_(b, x0, z0, x1, z1, y0, y1, col, hole); } finally { b.jit = sj; }
+}
+function slabHole_(b, x0, z0, x1, z1, y0, y1, col, hole) {
   if (!hole) { b.box(x0, y0, z0, x1, y1, z1, col); return; }
   const { hx0, hx1, hz0, hz1 } = hole;
   b.box(x0, y0, z0, hx0, y1, z1, col);
@@ -754,6 +774,10 @@ function flightInfo(o, k) {
 }
 
 function addStairs(b, o, k, col) {
+  const sj = b.jit; b.jit = 0;
+  try { return addStairs_(b, o, k, col); } finally { b.jit = sj; }
+}
+function addStairs_(b, o, k, col) {
   const f = flightInfo(o, k), yb = k * H_FLOOR, rise = H_FLOOR / STAIR_N;
   for (let i = 0; i < STAIR_N; i++) {
     const top = yb + (i + 1) * rise;
@@ -798,7 +822,7 @@ function mkBed(b, x, y, z, iz, P) {
   for (const sx of [-0.48, 0.48]) for (const sz of [-0.94, 0.94]) b.boxC(x + sx, y, zc + sz, 0.09, 0.22, 0.09, P.dark, false);
   b.boxC(x, y + 0.2, zc, 1.04, 0.14, 2.0, P.wood, false);
   b.boxC(x, y + 0.34, zc, 0.94, 0.2, 1.9, P.mattress, false);
-  b.boxC(x, y + 0.44, zc + iz * 0.42, 0.98, 0.1, 1.15, P.cloth, false, 0.04);
+  b.boxC(x, y + 0.44, zc + iz * 0.4, 0.99, 0.12, 1.1, P.cloth, false, 0.04);
   b.boxC(x, y + 0.54, z + iz * 0.3, 0.62, 0.11, 0.34, P.pillow, false);
   b.boxC(x, y + 0.1, z + iz * 0.05, 1.1, 1.0, 0.08, P.wood, false);
   b.boxC(x, y + 0.1, z + iz * 1.96, 1.1, 0.5, 0.07, P.wood, false);
@@ -807,8 +831,8 @@ function mkCrate(b, x, y, z, P) {
   b.boxC(x, y, z, 0.95, 0.95, 0.95, P.crate);
   b.boxC(x, y + 0.93, z, 1.02, 0.06, 1.02, P.dark, false);
   for (const sx of [-0.46, 0.46]) for (const sz of [-0.46, 0.46]) b.boxC(x + sx, y, z + sz, 0.07, 0.95, 0.07, P.dark, false);
-  b.boxC(x, y + 0.3, z, 0.99, 0.05, 0.99, P.dark, false);
-  b.boxC(x, y + 0.64, z, 0.99, 0.05, 0.99, P.dark, false);
+  b.boxC(x, y + 0.3, z, 1.01, 0.05, 1.01, P.dark, false);
+  b.boxC(x, y + 0.64, z, 1.01, 0.05, 1.01, P.dark, false);
 }
 function mkShelf(b, x, y, z, iz, P) {
   b.boxC(x, y, z + iz * 0.25, 1.4, 1.9, 0.4, P.wood);
@@ -838,11 +862,15 @@ function mkDumpster(b, x, z) {
   b.boxC(x + 0.5, 1.36, z, 0.98, 0.08, 1.12, '#1e3e28', false);
   for (const xs of [-0.65, 0, 0.65]) for (const zs of [-0.52, 0.52]) b.boxC(x + xs, 0.24, z + zs, 0.1, 0.95, 0.04, '#244a30', false);
   for (const xs of [-0.8, 0.8]) for (const zs of [-0.4, 0.4]) b.boxC(x + xs, 0, z + zs, 0.16, 0.22, 0.16, '#101214', false);
-  b.boxC(x, 0.7, z + 0.53, 0.7, 0.16, 0.02, '#8a8a7c', false);
+  b.boxC(x, 0.7, z + 0.545, 0.7, 0.16, 0.02, '#8a8a7c', false);
   b.boxC(x, 1.0, z - 0.58, 1.5, 0.05, 0.05, '#111', false);
   addHide(b, 'dumpster', x, 0, z, x, z + 1.6, 0);
 }
 function mkHay(b, x, z) {
+  const sj = b.jit; b.jit = 0.08;
+  try { mkHay_(b, x, z); } finally { b.jit = sj; }
+}
+function mkHay_(b, x, z) {
   b.colBox(x - 0.9, 0, z - 0.7, x + 0.9, 1.4, z + 0.7);
   b.boxC(x, 0, z, 1.8, 0.7, 1.4, '#b49a45', false, 0.10);
   b.boxC(x - 0.1, 0.7, z, 1.4, 0.7, 1.2, '#a98e3a', false, 0.10);
@@ -876,10 +904,29 @@ function mkTank(b, x, y, z) {
 }
 
 function furnishRoom(b, R, yb, pal, opt) {
+  const sj = b.jit; b.jit = 0.08;
+  try { furnishRoom_(b, R, yb, pal, opt); } finally { b.jit = sj; }
+}
+function furnishRoom_(b, R, yb, pal, opt) {
   // R: {ax0,ax1, backZ, backIn, frontZ, frontIn, doorX}
   const rng = b.rng;
   const P = Object.assign({ dark: '#2e2016', door: '#6e4d32', door2: '#7d5a3c', brass: '#c9a14a', mattress: '#cfc8b8', pillow: '#e8e0d0' }, pal);
   const cxm = (R.ax0 + R.ax1) / 2, czm = (R.backZ + R.frontZ) / 2;
+  {
+    // 木地板縫線與踢腳板（讓地板不再是一整片平面）
+    const sj2 = b.jit; b.jit = 0;      // 地板細節不抖色，避免重疊處閃爍
+    const fl = yb === 0 ? 0.04 : yb, zA = Math.min(R.backZ, R.frontZ), zB = Math.max(R.backZ, R.frontZ);
+    const seam = P.seam || '#241a12', base = P.base || '#1f1812';
+    for (let px = R.ax0 + 0.55; px < R.ax1 - 0.3; px += 0.8) b.box(px - 0.014, fl + 0.006, zA, px + 0.014, fl + 0.011, zB, seam, false);
+    const bh = 0.14, bt = 0.04;
+    b.box(R.ax0, fl, R.backZ, R.ax1, fl + bh, R.backZ + R.backIn * bt, base, false);                       // 後牆
+    b.box(R.ax0, fl, zA, R.ax0 + bt, fl + bh, zB, base, false);                                              // 左牆
+    b.box(R.ax1 - bt, fl, zA, R.ax1, fl + bh, zB, base, false);                                              // 右牆
+    const dx0 = R.doorX - 0.95, dx1 = R.doorX + 0.95;                                                         // 走廊側牆（門口留空）
+    b.box(R.ax0, fl, R.frontZ, dx0, fl + bh, R.frontZ + R.frontIn * bt, base, false);
+    b.box(dx1, fl, R.frontZ, R.ax1, fl + bh, R.frontZ + R.frontIn * bt, base, false);
+    b.jit = sj2;
+  }
   // 地毯
   {
     const rw = Math.min(3.4, R.ax1 - R.ax0 - 2.8), rd = Math.min(2.4, Math.abs(R.frontZ - R.backZ) - 2.6);
@@ -944,6 +991,10 @@ function furnishRoom(b, R, yb, pal, opt) {
 
 /* ---------- 多層建築 ---------- */
 function building(b, o) {
+  const sj = b.jit; b.jit = 0;
+  try { building_(b, o); } finally { b.jit = sj; }
+}
+function building_(b, o) {
   o = Object.assign({ floors: 3, hallW: 10, rooms: 3, roof: 'pitched', windows: true, extraDoors: [], hideProb: 0.5 }, o);
   const { x0, z0, x1, z1, floors } = o;
   const H = H_FLOOR, cz = (z0 + z1) / 2;
@@ -1020,7 +1071,19 @@ function building(b, o) {
         b.boxC(px, yb + 1.85, zc0 + 0.2, 0.2, 0.3, 0.1, '#ffcf7a', false, 0.7);
         b.boxC(px, yb + 1.85, zc1 - 0.2, 0.2, 0.3, 0.1, '#ffcf7a', false, 0.7);
       }
+      {   // 走廊長地毯
+        const ry = (yb === 0 ? 0.04 : yb) + 0.01, len = (x1 - rx0) - 3.2;
+        b.boxC(rx0 + (x1 - rx0) / 2 + 0.4, ry, cz, len, 0.012, 1.5, '#4a2626', false);
+        b.boxC(rx0 + (x1 - rx0) / 2 + 0.4, ry + 0.012, cz, len - 0.3, 0.01, 1.14, '#7a6a44', false);
+        b.boxC(rx0 + (x1 - rx0) / 2 + 0.4, ry + 0.022, cz, len - 0.6, 0.01, 0.9, '#4a2626', false);
+      }
       b.spots.patrol.push([rx0 + (x1 - rx0) / 2, yb, cz]);
+    }
+    {   // 大廳地毯（夾在兩段樓梯開口之間）
+      const ry = (yb === 0 ? 0.04 : yb) + 0.01, hc = x0 + o.hallW / 2;
+      b.boxC(hc, ry, cz, 3.4, 0.012, 2.3, '#3a2a4a', false);
+      b.boxC(hc, ry + 0.012, cz, 3.0, 0.01, 1.9, '#8a7a4a', false);
+      b.boxC(hc, ry + 0.022, cz, 2.5, 0.01, 1.5, '#3a2a4a', false);
     }
     // 大廳的點
     b.spots.patrol.push([x0 + o.hallW / 2, yb, cz]);
@@ -1056,6 +1119,10 @@ function building(b, o) {
 
 /* ---------- 迷宮（樹籬／地牢） ---------- */
 function mazeGen(b, o) {
+  const sj = b.jit; b.jit = 0;
+  try { return mazeGen_(b, o); } finally { b.jit = sj; }
+}
+function mazeGen_(b, o) {
   const { ox, oz, cols, rows, cell, th, h, col } = o;
   const rng = b.rng;
   const right = [], down = [];
@@ -1111,13 +1178,35 @@ function mazeGen(b, o) {
 }
 
 /* ---------- 戶外 ---------- */
-function groundTiles(b, colFn, tile = 10) {
-  const bd = b.bounds;
+function groundTiles(b, colFn, tile = 6) {
+  const bd = b.bounds, sj = b.jit; b.jit = 0.06;
   for (let x = bd.x0; x < bd.x1; x += tile) for (let z = bd.z0; z < bd.z1; z += tile) {
     b.box(x, -0.4, z, x + tile, 0, z + tile, colFn(x + tile / 2, z + tile / 2), false);
   }
+  b.jit = sj;
+}
+/* 地面細節：不重疊的薄片土塊／草簇／碎石（全是靜態方塊，依區塊剔除） */
+function groundDetail(b, o) {
+  const sj = b.jit; b.jit = 0.1;
+  const layers = [0.008, 0.014, 0.02], av = o.avoid || [];
+  scatter(b, o.patches || 0, b.bounds, 3.2, av, (x, z, i) => {
+    const w = 1.2 + b.rng() * 1.0, d = 1.0 + b.rng() * 1.0;
+    b.boxC(x, layers[i % 3], z, w, 0.004, d, rpick(b.rng, o.cols), false);
+  });
+  if (o.tufts) scatter(b, o.tufts, b.bounds, 1.5, av, (x, z) => {
+    b.pyr(x, 0, z, 0.34, 0.34, 0.42 + b.rng() * 0.25, o.tuft || '#2c5a30', 0.05);
+    b.pyr(x + 0.14, 0, z + 0.1, 0.26, 0.26, 0.3, o.tuft2 || '#356a38', 0.05);
+  });
+  if (o.stones) scatter(b, o.stones, b.bounds, 1.6, av, (x, z) => {
+    b.boxC(x, 0, z, 0.28 + b.rng() * 0.2, 0.1 + b.rng() * 0.06, 0.22 + b.rng() * 0.2, o.stone || '#5a5e5c', false);
+  });
+  b.jit = sj;
 }
 function boundaryWalls(b, col, h = 9) {
+  const sj = b.jit; b.jit = 0;
+  try { boundaryWalls_(b, col, h); } finally { b.jit = sj; }
+}
+function boundaryWalls_(b, col, h) {
   const bd = b.bounds, t = 2;
   b.box(bd.x0 - t, 0, bd.z0 - t, bd.x1 + t, h, bd.z0, col);
   b.box(bd.x0 - t, 0, bd.z1, bd.x1 + t, h, bd.z1 + t, col);
@@ -1125,6 +1214,10 @@ function boundaryWalls(b, col, h = 9) {
   b.box(bd.x1, 0, bd.z0, bd.x1 + t, h, bd.z1, col);
 }
 function tree(b, x, z, s = 1, pal) {
+  const sj = b.jit; b.jit = 0.10;
+  try { tree_(b, x, z, s, pal); } finally { b.jit = sj; }
+}
+function tree_(b, x, z, s, pal) {
   pal = pal || {};
   const tc = pal.trunk || '#3b2a1c';
   b.boxC(x, 0, z, 0.55 * s, 3.2 * s, 0.55 * s, tc);
@@ -1133,6 +1226,10 @@ function tree(b, x, z, s = 1, pal) {
   b.pyr(x, 3.4 * s, z, 2.4 * s, 2.4 * s, 2.4 * s, c2);
 }
 function bush(b, x, z, pal) {
+  const sj = b.jit; b.jit = 0.10;
+  try { bush_(b, x, z, pal); } finally { b.jit = sj; }
+}
+function bush_(b, x, z, pal) {
   const c1 = (pal && pal.bush) || '#2f6a35', c2 = (pal && pal.bush2) || '#3a7a40', c3 = '#255a2c', c4 = '#4a8a48';
   b.colBox(x - 0.9, 0, z - 0.9, x + 0.9, 1.15, z + 0.9);
   b.boxC(x, 0, z, 1.3, 0.45, 1.3, c3, false, 0.08);
@@ -1152,7 +1249,11 @@ function mound(b, cx, cz, w, d, layers, col, rise = 0.45) {
     b.boxC(cx, 0, cz, w - inset * 2, (i + 1) * rise, d - inset * 2, col);
   }
 }
-function rock(b, x, z, s, col) { b.boxC(x, 0, z, 1.6 * s, 0.9 * s, 1.2 * s, col || '#55595a'); b.boxC(x + 0.2 * s, 0.9 * s, z, 0.9 * s, 0.4 * s, 0.8 * s, col || '#606466', false); }
+function rock(b, x, z, s, col) {
+  const sj = b.jit; b.jit = 0.08;
+  try { rock_(b, x, z, s, col); } finally { b.jit = sj; }
+}
+function rock_(b, x, z, s, col) { b.boxC(x, 0, z, 1.6 * s, 0.9 * s, 1.2 * s, col || '#55595a'); b.boxC(x + 0.2 * s, 0.9 * s, z, 0.9 * s, 0.4 * s, 0.8 * s, col || '#606466', false); }
 function lamp(b, x, z, h = 3.4, col = '#ffd98a') { b.boxC(x, 0, z, 0.18, h, 0.18, '#2a2d30'); b.boxC(x, h, z, 0.5, 0.3, 0.5, col, false, 1.0); }
 function outSpotNear(b, kind, x, z, hint) {
   const a = Math.floor(b.rng() * 8) * (Math.PI / 4);
@@ -1176,198 +1277,196 @@ function scatter(b, n, region, minD, avoid, fn) {
 }
 
 /* ---- 04_maps.js ---- */
-/* ===== 三張地圖：廢棄莊園（半森林）、廢棄都市、廢棄城堡 ===== */
+/* ===== 三張地圖（縮小至原本邊長的約 3/5）：廢棄莊園（半森林）、廢棄都市、廢棄城堡 ===== */
 
 function buildManor() {
-  const b = new Builder(1101, { x0: -60, z0: -60, x1: 60, z1: 60 });
-  b.theme = { name: '廢棄莊園', fog: [0.07, 0.10, 0.11], near: 8, far: 55, amb: 0.34, sun: 0.14, sunDir: [-0.4, 0.8, 0.3], flash: 1.0 };
-  const pathTile = (x, z) => (Math.abs(x) < 4 && z > -18 && z < 58) || (Math.abs(z - 30) < 3 && x > -50 && x < 50) ? '#4a4535' : null;
-  groundTiles(b, (x, z) => pathTile(x, z) || (((Math.floor(x / 10) + Math.floor(z / 10)) & 1) ? '#26352a' : '#2a3a2c'));
-  boundaryWalls(b, '#1d2420', 10);
+  const b = new Builder(1101, { x0: -36, z0: -36, x1: 36, z1: 36 });
+  b.theme = { name: '廢棄莊園', fog: [0.07, 0.10, 0.11], near: 8, far: 50, amb: 0.34, sun: 0.14, sunDir: [-0.4, 0.8, 0.3], flash: 1.0 };
+  const isPath = (x, z) => (Math.abs(x) < 2.6 && z > 2) || (Math.abs(x + 9.5) < 2 && z > -18 && z < -14);
+  groundTiles(b, (x, z) => isPath(x, z) ? '#4a4535' : (((Math.floor(x / 6) + Math.floor(z / 6)) & 1) ? '#26352a' : '#2a3a2c'), 6);
+  boundaryWalls(b, '#1d2420', 9);
   const pal = { wall: '#6a6258', floor: '#3b322b', ceil: '#2c2724', roofCol: '#2a2230' };
-  // 主屋 x∈[-18,14] z∈[-34,-18]
-  building(b, { x0: -18, z0: -34, x1: 14, z1: -18, floors: 3, hallW: 10, rooms: 3, roof: 'pitched', pal, roofH: 5 });
-  // 僕人小屋 x∈[28,52] z∈[-42,-26]
-  building(b, { x0: 28, z0: -42, x1: 52, z1: -26, floors: 2, hallW: 10, rooms: 2, roof: 'pitched', pal: Object.assign({}, pal, { wall: '#5e5a4e', roofCol: '#3a2a22' }), roofH: 4, hideProb: 0.6 });
-  // 樹籬迷宮 x∈[-16,16] z∈[-14,14]
-  const mz = mazeGen(b, { ox: -16, oz: -14, cols: 8, rows: 7, cell: 4, th: 0.8, h: 2.3, col: '#244a28', entrances: [{ side: 'n', idx: 3 }, { side: 's', idx: 4 }] });
+  // 主屋 x∈[-14,10] z∈[-32,-18]
+  building(b, { x0: -14, z0: -32, x1: 10, z1: -18, floors: 3, hallW: 9, rooms: 2, roof: 'pitched', pal, roofH: 5 });
+  // 僕人小屋 x∈[14,34] z∈[6,20]
+  building(b, { x0: 14, z0: 6, x1: 34, z1: 20, floors: 2, hallW: 9, rooms: 2, roof: 'pitched', pal: Object.assign({}, pal, { wall: '#5e5a4e', roofCol: '#3a2a22' }), roofH: 4, hideProb: 0.6 });
+  // 樹籬迷宮 x∈[-10,10] z∈[-14,2]
+  const mz = mazeGen(b, { ox: -10, oz: -14, cols: 5, rows: 4, cell: 4, th: 0.8, h: 2.3, col: '#244a28', entrances: [{ side: 'n', idx: 2 }, { side: 's', idx: 2 }] });
   mz.dead.forEach((d, i) => {
     const k = i % 4;
-    if (k === 0 || k === 1) b.spots.code.push({ x: d.x + (b.rng() - 0.5) * 1.4, y: 0.03, z: d.z + (b.rng() - 0.5) * 1.4, hint: '迷宮死路' });
+    if (k === 0 || k === 1) b.spots.code.push({ x: d.x + (b.rng() - 0.5) * 1.2, y: 0.03, z: d.z + (b.rng() - 0.5) * 1.2, hint: '迷宮死路' });
     else if (k === 2) b.spots.lock.push({ x: d.x, y: 0, z: d.z, yaw: b.rng() * TAU });
     else b.spots.ped.push({ x: d.x, y: 0, z: d.z });
   });
-  b.spots.frog.push({ x: mz.dead[0] ? mz.dead[0].x : 0, y: 0.02, z: mz.dead[0] ? mz.dead[0].z + 1 : 0 });
+  if (mz.dead[0]) b.spots.frog.push({ x: mz.dead[0].x, y: 0.02, z: mz.dead[0].z + 1 });
   b.boxC(mz.center.x, 0, mz.center.z, 1.4, 0.9, 1.4, '#5a5a58');           // 迷宮中心噴泉
+  b.boxC(mz.center.x, 0.9, mz.center.z, 0.9, 0.12, 0.9, '#2a4a5a', false, 0.15);
   b.spots.patrol.push([mz.center.x + 2, 0, mz.center.z]);
-  // 墓園 x∈[-56,-30] z∈[-6,22]
-  for (let gx = -52; gx <= -34; gx += 3.4) for (let gz = -2; gz <= 18; gz += 3.4) {
+  // 墓園 x∈[-34,-18] z∈[-8,8]
+  for (let gx = -32; gx <= -20; gx += 3.2) for (let gz = -6; gz <= 6; gz += 3.2) {
     if (b.rng() < 0.2) continue;
     b.boxC(gx, 0, gz, 0.9, 1.3, 0.28, '#5b5f60');
     b.boxC(gx, 1.3, gz, 0.7, 0.2, 0.28, '#6a6e70', false);
+    b.boxC(gx, 0, gz + 0.6, 0.7, 0.06, 1.1, '#4a4e48', false);                  // 墓前石板
     if (b.rng() < 0.3) b.spots.code.push({ x: gx + 0.1, y: 0.03, z: gz + 0.5, hint: '墓碑後' });
   }
-  b.box(-57, 0, -7, -29, 1.2, -6.6, '#2f3436'); b.box(-57, 0, 22, -29, 1.2, 22.4, '#2f3436'); b.box(-57, 0, -7, -56.6, 1.2, 22.4, '#2f3436');
-  b.spots.patrol.push([-42, 0, 8]);
-  // 墓室（小屋）
-  b.box(-30, 0, 24, -22, 3, 24.4, '#55595a'); b.box(-30, 0, 32, -22, 3, 32.4, '#55595a');
-  b.box(-30, 0, 24, -29.6, 3, 28.8, '#55595a'); b.box(-30, 0, 30.4, -29.6, 3, 32.4, '#55595a');
-  b.box(-22.4, 0, 24, -22, 3, 32.4, '#55595a'); b.box(-30, 3, 24, -22, 3.3, 32.4, '#3f4446');
-  b.spots.ped.push({ x: -26, y: 0, z: 30 }); b.spots.code.push({ x: -23, y: 0.03, z: 25 , hint: '墓室角落'});
-  b.boxC(-26, 0, 27, 1.8, 0.8, 1.0, '#6a6a68'); b.spots.frog.push({ x: -26, y: 0.02, z: 25 });
-  b.spots.patrol.push([-26, 0, 28.5]);
-  // 土丘與觀景丘
-  mound(b, 38, 24, 16, 16, 4, '#3a4a30'); b.spots.ped.push({ x: 38, y: 4 * 0.45, z: 24 }); b.spots.lock.push({ x: 40, y: 4 * 0.45, z: 25, yaw: 0 });
-  mound(b, -14, 44, 12, 12, 3, '#3a4a30'); b.spots.code.push({ x: -14, y: 3 * 0.45 + 0.03, z: 44, hint: '丘頂' });
-  mound(b, 20, -52, 10, 8, 3, '#3a4a30');
-  b.spots.patrol.push([38, 4 * 0.45, 24]);
-  // 井、廢墟牆、石頭
-  b.boxC(22, 0, 12, 2, 1.0, 2, '#5a5e60'); b.boxC(22, 1.0, 12, 1.2, 0.15, 1.2, '#1a2024', false);
-  b.spots.code.push({ x: 22, y: 0.03, z: 13.4, hint: '井邊' });
-  for (let i = 0; i < 6; i++) { const x = 30 + i * 3; b.box(x, 0, 40, x + 2.2, 1.2 + (i % 3) * 0.8, 40.5, '#575b5a'); }
-  b.box(30, 0, 40, 30.5, 2.4, 46, '#575b5a'); b.spots.code.push({ x: 31.2, y: 0.03, z: 43, hint: '廢牆內側' }); b.spots.lock.push({ x: 31.4, y: 0, z: 45, yaw: Math.PI / 2 });
-  b.spots.patrol.push([32, 0, 43]);
-  // 戶外的路燈（微弱）
-  [[0, 20], [0, 34], [0, 48], [-14, 30], [14, 30]].forEach(p => lamp(b, p[0], p[1], 3.2, '#ffb868'));
-  // 樹林
-  const avoid = [[-22, -38, 18, -14], [24, -46, 56, -22], [-20, -16, 20, 16], [-60, -10, -28, 26], [-32, 22, -20, 34],
-    [-6, 14, 6, 60], [-52, 26, 52, 34], [32, 36, 50, 50], [28, -20, 50, -6]];
-  const forest = scatter(b, 330, b.bounds, 3.7, avoid, (x, z) => tree(b, x, z, 0.85 + b.rng() * 0.5));
-  forest.forEach((p, i) => { if (i % 9 === 0) outSpotNear(b, 'code', p[0], p[1], '樹根'); else if (i % 41 === 0) outSpotNear(b, 'frog', p[0], p[1]); else if (i % 37 === 0) outSpotNear(b, 'lock', p[0], p[1]); else if (i % 31 === 0) outSpotNear(b, 'ped', p[0], p[1]); });
-  scatter(b, 22, b.bounds, 6, avoid.concat([[-6, -18, 6, 14]]), (x, z) => bush(b, x, z));
-  scatter(b, 20, b.bounds, 6, avoid, (x, z) => rock(b, x, z, 0.8 + b.rng() * 0.8));
-  // 出生點（戶外空地）
-  [[0, 0, 50], [-40, 0, 40], [40, 0, 6], [-8, 0, 20], [12, 0, 52], [-48, 0, 30], [48, 0, 18], [0, 0, -50], [-30, 0, -50], [44, 0, -50], [-50, 0, -20], [52, 0, 2]].forEach(p => b.spots.spawn.push(p));
-  [[0, 0, 30], [-30, 0, 30], [30, 0, 30], [0, 0, 8], [-40, 0, 8], [36, 0, -10], [0, 0, -50], [-45, 0, -45], [45, 0, 45]].forEach(p => b.spots.patrol.push(p));
+  b.box(-35, 0, -9, -17, 1.2, -8.6, '#2f3436'); b.box(-35, 0, 8.6, -17, 1.2, 9, '#2f3436'); b.box(-35, 0, -9, -34.6, 1.2, 9, '#2f3436');
+  b.spots.patrol.push([-26, 0, 0]);
+  // 墓室 x∈[-30,-22] z∈[14,22]
+  b.box(-30, 0, 14, -22, 3, 14.4, '#55595a'); b.box(-30, 0, 21.6, -22, 3, 22, '#55595a');
+  b.box(-30, 0, 14, -29.6, 3, 18.4, '#55595a'); b.box(-30, 0, 20.2, -29.6, 3, 22, '#55595a');
+  b.box(-22.4, 0, 14, -22, 3, 22, '#55595a'); b.box(-30, 3, 14, -22, 3.3, 22, '#3f4446');
+  b.spots.ped.push({ x: -25, y: 0, z: 20.6 }); b.spots.code.push({ x: -23.2, y: 0.03, z: 15.2, hint: '墓室角落' });
+  b.boxC(-26, 0, 17, 1.8, 0.8, 1.0, '#6a6a68'); b.spots.frog.push({ x: -26, y: 0.02, z: 15.2 });
+  b.spots.patrol.push([-26, 0, 19.3]);
+  // 土丘
+  mound(b, 24, -18, 10, 10, 3, '#3a4a30'); b.spots.ped.push({ x: 24, y: 1.35, z: -18 }); b.spots.lock.push({ x: 25.5, y: 1.35, z: -17, yaw: 0 });
+  mound(b, -6, 26, 9, 9, 3, '#3a4a30'); b.spots.code.push({ x: -6, y: 1.38, z: 26, hint: '丘頂' });
+  b.spots.patrol.push([24, 1.35, -18]);
+  // 井、廢墟牆
+  b.boxC(20, 0, -4, 2, 1.0, 2, '#5a5e60'); b.boxC(20, 1.0, -4, 1.2, 0.15, 1.2, '#1a2024', false);
+  b.spots.code.push({ x: 20, y: 0.03, z: -2.6, hint: '井邊' });
+  for (let i = 0; i < 5; i++) { const x = 12 + i * 2.8; b.box(x, 0, 28, x + 2.0, 1.2 + (i % 3) * 0.8, 28.5, '#575b5a'); }
+  b.box(12, 0, 28, 12.5, 2.4, 33, '#575b5a'); b.spots.code.push({ x: 13.4, y: 0.03, z: 31, hint: '廢牆內側' }); b.spots.lock.push({ x: 13.4, y: 0, z: 32.4, yaw: Math.PI / 2 });
+  b.spots.patrol.push([14, 0, 31]);
+  [[0, 8], [0, 20], [0, 30], [-8, 24], [8, 24]].forEach(p => lamp(b, p[0], p[1], 3.2, '#ffb868'));
+  // 樹林與地面細節
+  const avoid = [[-18, -36, 14, -14], [10, 2, 38, 24], [-13, -17, 13, 5], [-37, -11, -16, 11], [-33, 11, -19, 25], [9, 25, 27, 37],
+    [18, -24, 30, -12], [-12, 20, 0, 32], [-4, 2, 4, 36], [16, -8, 24, 0]];
+  groundDetail(b, { patches: 60, cols: ['#2f3d2a', '#3a3a2c', '#344a30', '#2a3426'], tufts: 130, stones: 40, avoid });
+  const forest = scatter(b, 120, b.bounds, 3.5, avoid, (x, z) => tree(b, x, z, 0.85 + b.rng() * 0.5));
+  forest.forEach((p, i) => { if (i % 6 === 0) outSpotNear(b, 'code', p[0], p[1], '樹根'); else if (i % 29 === 0) outSpotNear(b, 'frog', p[0], p[1]); else if (i % 23 === 0) outSpotNear(b, 'lock', p[0], p[1]); else if (i % 19 === 0) outSpotNear(b, 'ped', p[0], p[1]); });
+  scatter(b, 12, b.bounds, 6, avoid, (x, z) => bush(b, x, z));
+  scatter(b, 10, b.bounds, 6, avoid, (x, z) => rock(b, x, z, 0.8 + b.rng() * 0.8));
+  [[0, 0, 26], [-20, 0, 30], [30, 0, 28], [-6, 0, 32], [30, 0, -6], [24, 0, -28], [-26, 0, -26], [-30, 0, 30], [14, 0, -8], [-16, 0, 14], [10, 0, 24], [32, 0, 0], [-30, 0, -12], [0, 0, -34]].forEach(p => b.spots.spawn.push(p));
+  [[0, 0, 24], [-26, 0, 28], [30, 0, 26], [24, 0, -28], [-30, 0, -26], [0, 0, -14], [12, 0, -8], [-20, 0, 8]].forEach(p => b.spots.patrol.push(p));
   // 傳送門：主屋二樓大廳 ↔ 小屋二樓大廳
-  b.portals.push({ a: [-13, 3.2, -26], b: [33, 3.2, -34] });
-  b.nav = { seed: [0, 0, 40] };
+  b.portals.push({ a: [-9.5, 3.2, -25], b: [18.5, 3.2, 13] });
   return b;
 }
 
 function buildCity() {
-  const b = new Builder(2202, { x0: -60, z0: -60, x1: 60, z1: 60 });
-  b.theme = { name: '廢棄都市', fog: [0.06, 0.07, 0.12], near: 10, far: 62, amb: 0.36, sun: 0.16, sunDir: [0.3, 0.9, -0.3], flash: 1.0 };
+  const b = new Builder(2202, { x0: -36, z0: -36, x1: 36, z1: 36 });
+  b.theme = { name: '廢棄都市', fog: [0.06, 0.07, 0.12], near: 9, far: 54, amb: 0.36, sun: 0.16, sunDir: [0.3, 0.9, -0.3], flash: 1.0 };
   const road = (x, z) => (Math.abs(x) < 6 || Math.abs(z) < 6);
-  groundTiles(b, (x, z) => road(x, z) ? '#26282c' : '#3d4146', 10);
-  boundaryWalls(b, '#16181c', 12);
-  // 道路標線
-  for (let z = -56; z < 56; z += 6) if (Math.abs(z) > 8) b.box(-0.15, 0, z, 0.15, 0.03, z + 3, '#b8b28a', false);
-  for (let x = -56; x < 56; x += 6) if (Math.abs(x) > 8) b.box(x, 0, -0.15, x + 3, 0.03, 0.15, '#b8b28a', false);
-  const concrete = { wall: '#6d6f72', floor: '#3a3b3e', ceil: '#2a2b2e', wood: '#4a4038', crate: '#5a5046', trim: '#222426', cloth: '#5a4a5a', hide: '#8a8a52', stair: '#4a4c50', roofSlab: '#33353a', parapet: '#707276' };
+  groundTiles(b, (x, z) => road(x, z) ? '#26282c' : '#3d4146', 6);
+  boundaryWalls(b, '#16181c', 11);
+  // 路面標線、路緣、裂縫
+  for (let z = -34; z < 34; z += 6) if (Math.abs(z) > 8) b.box(-0.15, 0, z, 0.15, 0.012, z + 3, '#b8b28a', false);
+  for (let x = -34; x < 34; x += 6) if (Math.abs(x) > 8) b.box(x, 0, -0.15, x + 3, 0.012, 0.15, '#b8b28a', false);
+  for (const sx of [-6.2, 6.2]) { b.box(sx - 0.15, 0, -36, sx + 0.15, 0.1, -6.4, '#555a60', false); b.box(sx - 0.15, 0, 6.4, sx + 0.15, 0.1, 36, '#555a60', false); }
+  for (const sz of [-6.2, 6.2]) { b.box(-36, 0, sz - 0.15, -6.4, 0.1, sz + 0.15, '#555a60', false); b.box(6.4, 0, sz - 0.15, 36, 0.1, sz + 0.15, '#555a60', false); }
+  groundDetail(b, { patches: 40, cols: ['#2e3135', '#1f2124', '#34373b', '#47484a'], stones: 50, stone: '#6a6c6e', avoid: [[-36, -36, 36, -19], [-36, 13, 36, 29]] });
+  const concrete = { wall: '#6d6f72', floor: '#3a3b3e', ceil: '#2a2b2e', wood: '#4a4038', crate: '#5a5046', trim: '#222426', cloth: '#5a4a5a', hide: '#8a8a52', stair: '#4a4c50', roofSlab: '#33353a', parapet: '#707276', frame: '#202226', base: '#1c1d20', seam: '#26231f' };
   const brick = Object.assign({}, concrete, { wall: '#7a5a4c' });
-  // 西北高塔（4 層＋屋頂）與東北高塔，以空橋相連（2 樓）
-  building(b, { x0: -38, z0: -40, x1: -8, z1: -24, floors: 4, hallW: 10, rooms: 3, roof: 'access', pal: concrete, extraDoors: [{ wall: 'e', level: 2, at: -32 }], hideProb: 0.45 });
-  building(b, { x0: 8, z0: -40, x1: 38, z1: -24, floors: 4, hallW: 10, rooms: 3, roof: 'access', pal: brick, extraDoors: [{ wall: 'w', level: 2, at: -32 }], hideProb: 0.45 });
-  // 空橋
+  // 高塔（4 層＋屋頂）兩棟，以空橋相連（2 樓）
+  building(b, { x0: -34, z0: -34, x1: -8, z1: -20, floors: 4, hallW: 9, rooms: 2, roof: 'access', pal: concrete, extraDoors: [{ wall: 'e', level: 2, at: -27 }], hideProb: 0.45 });
+  building(b, { x0: 8, z0: -34, x1: 34, z1: -20, floors: 4, hallW: 9, rooms: 2, roof: 'access', pal: brick, extraDoors: [{ wall: 'w', level: 2, at: -27 }], hideProb: 0.45 });
   const by = 2 * H_FLOOR;
-  b.box(-8, by - 0.3, -33.6, 8, by, -30.4, '#3a3d42');
-  b.box(-8, by, -33.7, 8, by + 1.0, -33.5, '#2a2c30'); b.box(-8, by, -30.5, 8, by + 1.0, -30.3, '#2a2c30');
-  b.boxC(-6.5, 0, -32, 1.2, by - 0.3, 1.2, '#44474c'); b.boxC(6.5, 0, -32, 1.2, by - 0.3, 1.2, '#44474c');
-  b.spots.code.push({ x: 0, y: by + 0.03, z: -33.2, hint: '空橋角落' }); b.spots.patrol.push([0, by, -32]);
-  // 西南／東南建築
-  building(b, { x0: -40, z0: 24, x1: -10, z1: 40, floors: 3, hallW: 10, rooms: 3, roof: 'access', pal: brick, hideProb: 0.5, doorN: -30 });
-  building(b, { x0: 10, z0: 24, x1: 40, z1: 40, floors: 2, hallW: 10, rooms: 3, roof: 'access', pal: concrete, hideProb: 0.5 });
-  // 街道物件
-  const cars = [[-20, -4.2, 0], [14, 4.2, 0], [-4.2, 20, 1], [4.2, -14, 1], [30, -4, 0], [-34, 4, 0], [4.4, 46, 1], [-4.4, -48, 1]];
-  cars.forEach(c => {
-    const vert = c[2] === 1;
-    const w = vert ? 1.9 : 4.4, d = vert ? 4.4 : 1.9;
-    b.boxC(c[0], 0.25, c[1] === undefined ? 0 : (vert ? c[1] : c[1]), w, 0.8, d, '#4a5058');
-    b.boxC(c[0], 1.05, vert ? c[1] : c[1], vert ? 1.7 : 2.2, 0.6, vert ? 2.2 : 1.7, '#2f3a44');
-    if (b.rng() < 0.7) b.spots.code.push({ x: c[0] + (vert ? 1.2 : 0), y: 0.03, z: c[1] + (vert ? 0 : 1.2), hint: '車旁' });
+  b.box(-8, by - 0.3, -28.6, 8, by, -25.4, '#3a3d42');
+  b.box(-8, by, -28.7, 8, by + 1.0, -28.5, '#2a2c30'); b.box(-8, by, -25.5, 8, by + 1.0, -25.3, '#2a2c30');
+  b.boxC(-7, 0, -27, 1.2, by - 0.3, 1.2, '#44474c'); b.boxC(7, 0, -27, 1.2, by - 0.3, 1.2, '#44474c');
+  b.spots.code.push({ x: 0, y: by + 0.03, z: -28.2, hint: '空橋角落' }); b.spots.patrol.push([0, by, -27]);
+  building(b, { x0: -34, z0: 14, x1: -10, z1: 28, floors: 3, hallW: 9, rooms: 2, roof: 'access', pal: brick, hideProb: 0.5, doorN: -26 });
+  building(b, { x0: 10, z0: 14, x1: 34, z1: 28, floors: 2, hallW: 9, rooms: 2, roof: 'access', pal: concrete, hideProb: 0.5 });
+  // 車輛、垃圾箱
+  [[-16, -3, 0], [14, 3, 0], [24, -3, 0], [-24, 3, 0], [-3, 16, 1], [3, -12, 1], [3, 31, 1], [-3, -24, 1]].forEach(c => {
+    const vert = c[2] === 1, w = vert ? 1.9 : 4.4, d = vert ? 4.4 : 1.9;
+    b.boxC(c[0], 0.25, c[1], w, 0.8, d, '#4a5058');
+    b.boxC(c[0], 1.05, c[1], vert ? 1.7 : 2.2, 0.6, vert ? 2.2 : 1.7, '#2f3a44');
+    b.boxC(c[0], 0.9, c[1], vert ? 1.96 : 4.46, 0.08, vert ? 4.46 : 1.96, '#2a2e34', false);
+    for (const sx of [-0.55, 0.55]) for (const sz of [-0.5, 0.5]) b.boxC(c[0] + (vert ? sx * 1.5 : sx * 3.2), 0, c[1] + (vert ? sz * 3.6 : sz * 2.0), 0.34, 0.34, 0.34, '#111214', false);
+    if (b.rng() < 0.7) b.spots.code.push({ x: c[0] + (vert ? 1.4 : 0), y: 0.03, z: c[1] + (vert ? 0 : 1.4), hint: '車旁' });
   });
-  // 垃圾箱（可藏）
-  [[-16, -8], [16, 8], [-8, 16], [8, -16], [-46, 8], [46, -8], [-16, 20], [20, -20]].forEach((p, i) => {
+  [[-10, -8], [10, 8], [-8, 10], [8, -10], [-26, 10], [26, -8], [-12, 31], [20, 31]].forEach((p, i) => {
     mkDumpster(b, p[0], p[1]);
     if (i % 2 === 0) b.spots.code.push({ x: p[0] + 1.3, y: 0.03, z: p[1], hint: '垃圾箱旁' });
   });
-  // 貨櫃堆（高度）：一個可爬上的貨櫃
-  const cont = (x, z, y, col) => b.boxC(x, y, z, 6, 2.6, 2.4, col);
-  cont(-50, -8, 0, '#6a3a30'); cont(-50, 8, 0, '#3a6a4a'); cont(-50, 14, 0, '#304a6a');
-  for (let i = 0; i < 6; i++) b.box(-47 + i * 0.7, 0, -9.2, -47 + (i + 1) * 0.7, 0.43 * (6 - i), -6.8, '#55575a');
-  b.spots.code.push({ x: -50, y: 2.6 + 0.03, z: -8, hint: '貨櫃頂' }); b.spots.ped.push({ x: -51.5, y: 2.6, z: -8.6 });
-  b.spots.lock.push({ x: -50, y: 2.6, z: 8, yaw: 0 });
-  // 路燈與障礙
-  for (let x = -50; x <= 50; x += 20) { lamp(b, x, -7, 4.2, '#a8c8ff'); lamp(b, x, 7, 4.2, '#a8c8ff'); }
-  for (let z = -50; z <= 50; z += 20) { lamp(b, -7, z, 4.2, '#a8c8ff'); lamp(b, 7, z, 4.2, '#a8c8ff'); }
-  for (let i = 0; i < 12; i++) { const x = (b.rng() - 0.5) * 100, z = (b.rng() - 0.5) * 100; if (Math.abs(x) < 7 || Math.abs(z) < 7) continue; if ((x > -42 && x < 42 && Math.abs(z) > 22 && Math.abs(z) < 42)) continue; b.boxC(x, 0, z, 2.2, 0.9, 1.0, '#8a8e92'); b.spots.code.push({ x: x + 1.3, y: 0.03, z, hint: '路障' }); }
-  // 公車亭
-  b.box(10, 0, 7.6, 16, 0.2, 9, '#444'); b.box(10, 2.6, 7.6, 16, 2.8, 9.6, '#3a3f44'); b.box(10, 0, 9, 16, 2.6, 9.2, '#2c4452', true);
-  b.spots.frog.push({ x: 15.4, y: 0.25, z: 8.4 });
-  b.spots.ped.push({ x: 12, y: 0, z: 8.2 });
-  // 出生點／巡邏
-  [[0, 0, 0], [-48, 0, -48], [48, 0, -48], [-48, 0, 48], [48, 0, 48], [0, 0, 50], [0, 0, -50], [-24, 0, 0], [24, 0, 0], [-50, 0, 30], [50, 0, 20]].forEach(p => b.spots.spawn.push(p));
-  [[0, 0, 0], [-24, 0, 0], [24, 0, 0], [0, 0, 30], [0, 0, -50], [40, 0, -4], [-48, 0, 24], [48, 0, 50], [-30, 0, 50]].forEach(p => b.spots.patrol.push(p));
-  b.portals.push({ a: [-33, 4 * H_FLOOR, -32], b: [-25, 0, 32] });
-  b.nav = { seed: [0, 0, 0] };
+  // 貨櫃（可爬上去）
+  const cont = (x, z, col) => { b.boxC(x, 0, z, 6, 2.6, 2.4, col); b.boxC(x, 2.6, z, 6.1, 0.08, 2.5, '#2a2c2e', false); for (let k = -2; k <= 2; k++) b.boxC(x + k * 1.2, 0, z + 1.21, 0.1, 2.6, 0.04, '#00000033'.slice(0, 7), false); };
+  cont(-31, -6, '#6a3a30'); cont(-31, 6, '#3a6a4a'); cont(-31, 11.5, '#304a6a');
+  for (let i = 0; i < 6; i++) b.box(-28 + i * 0.7, 0, -7.2, -28 + (i + 1) * 0.7, 0.43 * (6 - i), -4.8, '#55575a');
+  b.spots.code.push({ x: -31, y: 2.71, z: -6, hint: '貨櫃頂' }); b.spots.ped.push({ x: -32.2, y: 2.68, z: -6.6 });
+  b.spots.lock.push({ x: -29.6, y: 2.68, z: -5.4, yaw: Math.PI });
+  // 路燈、路障、公車亭
+  for (let x = -30; x <= 30; x += 15) { lamp(b, x, -7.2, 4.2, '#a8c8ff'); lamp(b, x, 7.2, 4.2, '#a8c8ff'); }
+  for (let z = -30; z <= 30; z += 15) { lamp(b, -7.2, z, 4.2, '#a8c8ff'); lamp(b, 7.2, z, 4.2, '#a8c8ff'); }
+  for (let i = 0; i < 9; i++) {
+    const x = (b.rng() - 0.5) * 66, z = (b.rng() - 0.5) * 66;
+    if (Math.abs(x) < 7 && Math.abs(z) < 7) continue; if ((x < -9 && x > -34 && z > -35 && z < -19) || (x > 9 && x < 34 && z > -35 && z < -19) || (z > 13 && z < 29 && Math.abs(x) > 9)) continue;
+    if (Math.abs(x) > 6.4 && Math.abs(z) > 6.4 && !(z > 29)) continue;
+    b.boxC(x, 0, z, 2.2, 0.9, 1.0, '#8a8e92'); b.boxC(x, 0.55, z, 2.24, 0.12, 1.04, '#c9622a', false, 0.15); b.spots.code.push({ x: x + 1.4, y: 0.03, z, hint: '路障' });
+  }
+  b.box(8, 0, 6.8, 14, 0.2, 8.0, '#444'); b.box(8, 2.6, 6.8, 14, 2.8, 8.2, '#3a3f44'); b.box(8, 0, 8.0, 14, 2.6, 8.2, '#2c4452');
+  for (const px of [8.1, 13.9]) b.boxC(px, 0.2, 7.0, 0.12, 2.4, 0.12, '#2a2e32', false);
+  b.spots.frog.push({ x: 13.4, y: 0.25, z: 7.4 }); b.spots.ped.push({ x: 10, y: 0.2, z: 7.4 });
+  [[0, 0, 0], [-20, 0, 0], [20, 0, 0], [0, 0, 20], [0, 0, -12], [-30, 0, 31], [30, 0, 31], [-20, 0, 31], [18, 0, 31], [-8, 0, -4], [10, 0, 0]].forEach(p => b.spots.spawn.push(p));
+  [[0, 0, 0], [-20, 0, 0], [20, 0, 0], [0, 0, 22], [0, 0, -14], [-30, 0, 31], [30, 0, 31], [-20, 0, 31]].forEach(p => b.spots.patrol.push(p));
+  b.portals.push({ a: [-19, 4 * H_FLOOR, -27], b: [-29.5, 0, 21] });
   return b;
 }
 
 function buildCastle() {
-  const b = new Builder(3303, { x0: -55, z0: -55, x1: 55, z1: 55 });
-  b.theme = { name: '廢棄城堡', fog: [0.10, 0.07, 0.06], near: 8, far: 52, amb: 0.33, sun: 0.12, sunDir: [-0.2, 0.8, 0.5], flash: 1.05 };
-  groundTiles(b, (x, z) => (Math.abs(x) < 34 && Math.abs(z) < 34) ? (((Math.floor(x / 10) + Math.floor(z / 10)) & 1) ? '#3c3a36' : '#403e3a') : (((Math.floor(x / 10) + Math.floor(z / 10)) & 1) ? '#2c3328' : '#303a2c'));
-  boundaryWalls(b, '#1a1614', 11);
-  const stone = { wall: '#6b6a68', floor: '#3a3836', ceil: '#2c2a28', wood: '#4a3424', crate: '#5a4630', trim: '#222', cloth: '#6a3a3a', hide: '#9a7a45', stair: '#555452', roofSlab: '#383634', parapet: '#6b6a68' };
-  // 主堡
-  building(b, { x0: -16, z0: -14, x1: 16, z1: 2, floors: 3, hallW: 10, rooms: 3, roof: 'access', pal: stone, hideProb: 0.5 });
-  // 四座角塔（內部樓梯、屋頂可上城牆）
-  const tw = 9;
-  const tpos = [[-31.6, -31.6], [22.6, -31.6], [-31.6, 22.6], [22.6, 22.6]];
-  tpos.forEach((p, i) => {
-    const o = { x0: p[0], z0: p[1], x1: p[0] + tw, z1: p[1] + tw, floors: 2, hallW: tw, rooms: 0, hallOnly: true, roof: 'access', pal: stone, windows: false, roofProps: false, noParapet: true, doorN: p[1] > 0 ? p[0] + 4.5 : undefined };
-    building(b, o);
-  });
-  // 城牆（高 6.4，牆頂可行走，與塔頂等高）
-  const wh = 6.4, wt = 2.4;
-  b.box(-34, 0, -34, 34, wh, -34 + wt, stone.wall);
-  b.box(-34, 0, 34 - wt, -3, wh, 34, stone.wall); b.box(3, 0, 34 - wt, 34, wh, 34, stone.wall);   // 南牆（中間留城門）
-  b.box(-34 + wt, 0, 34 - wt, -3, wh, 34, stone.wall);
-  b.box(-34, 0, -34, -34 + wt, wh, 34, stone.wall); b.box(34 - wt, 0, -34, 34, wh, 34, stone.wall);
-  b.box(-3, 4.4, 34 - wt, 3, wh, 34, stone.wall);                       // 城門上方連接牆頂
-  for (let t = -34; t < 34; t += 3) {
-    b.box(t, wh, -34, t + 1.4, wh + 1.0, -34 + 0.6, stone.wall);
-    if (t < -4 || t > 3) b.box(t, wh, 34 - 0.6, t + 1.4, wh + 1.0, 34, stone.wall);
-    b.box(-34, wh, t, -34 + 0.6, wh + 1.0, t + 1.4, stone.wall);
-    b.box(34 - 0.6, wh, t, 34, wh + 1.0, t + 1.4, stone.wall);
+  const b = new Builder(3303, { x0: -33, z0: -33, x1: 33, z1: 33 });
+  b.theme = { name: '廢棄城堡', fog: [0.10, 0.07, 0.06], near: 8, far: 48, amb: 0.33, sun: 0.12, sunDir: [-0.2, 0.8, 0.5], flash: 1.05 };
+  const inYard = (x, z) => Math.abs(x) < 24 && Math.abs(z) < 24;
+  groundTiles(b, (x, z) => inYard(x, z) ? (((Math.floor(x / 6) + Math.floor(z / 6)) & 1) ? '#3c3a36' : '#403e3a') : (((Math.floor(x / 6) + Math.floor(z / 6)) & 1) ? '#2c3328' : '#303a2c'), 6);
+  boundaryWalls(b, '#1a1614', 10);
+  const stone = { wall: '#6b6a68', floor: '#3a3836', ceil: '#2c2a28', wood: '#4a3424', crate: '#5a4630', trim: '#222', cloth: '#6a3a3a', hide: '#9a7a45', stair: '#555452', roofSlab: '#383634', parapet: '#6b6a68', frame: '#26221e', base: '#1f1c1a', seam: '#2a2622' };
+  // 庭院鋪石（兩色方磚，薄片、避開建築）
+  const keep = [-11, -12, 11, 2], towerR = [[-21.6, -21.6], [12.6, -21.6], [-21.6, 12.6], [12.6, 12.6]];
+  for (let x = -21; x < 21; x += 3) for (let z = -21; z < 21; z += 3) {
+    if (x + 3 > keep[0] - 0.5 && x < keep[2] + 0.5 && z + 3 > keep[1] - 0.5 && z < keep[3] + 0.5) continue;
+    if (towerR.some(t => x + 3 > t[0] - 0.2 && x < t[0] + 9.2 && z + 3 > t[1] - 0.2 && z < t[1] + 9.2)) continue;
+    if (((Math.floor((x + 21) / 3) + Math.floor((z + 21) / 3)) & 1) === 0) b.box(x + 0.04, 0, z + 0.04, x + 2.96, 0.01, z + 2.96, '#33312e', false);
   }
-  // 庭院中的小物
-  b.boxC(-22, 0, 8, 2.2, 1.0, 2.2, '#5a5a58'); b.boxC(-22, 1.0, 8, 1.3, 0.1, 1.3, '#101418', false);
-  b.spots.code.push({ x: -22, y: 0.03, z: 9.4, hint: '水井旁' });
-  // 乾草（可藏）、推車
-  [[-26, 18], [24, -8], [-8, 24], [-14, 10]].forEach((p, i) => {
-    mkHay(b, p[0], p[1]);
-    if (i % 2) b.spots.code.push({ x: p[0] + 1.3, y: 0.03, z: p[1], hint: '乾草旁' });
+  // 主堡
+  building(b, { x0: -11, z0: -12, x1: 11, z1: 2, floors: 3, hallW: 9, rooms: 2, roof: 'access', pal: stone, hideProb: 0.5 });
+  // 四座角塔（內部樓梯、屋頂可上城牆）
+  towerR.forEach(p => {
+    building(b, { x0: p[0], z0: p[1], x1: p[0] + 9, z1: p[1] + 9, floors: 2, hallW: 9, rooms: 0, hallOnly: true, roof: 'access', pal: stone, windows: false, roofProps: false, noParapet: true, doorN: p[1] > 0 ? p[0] + 4.5 : undefined });
   });
-  [[-12, 14], [10, 6], [-24, -2], [30, 0]].forEach(p => { b.boxC(p[0], 0.4, p[1], 2.0, 0.6, 1.2, '#4a3424'); b.boxC(p[0] - 0.9, 0, p[1], 0.7, 0.7, 0.1, '#222', false); b.spots.code.push({ x: p[0], y: 0.03, z: p[1] + 1.0, hint: '推車下' }); });
-  // 地牢迷宮 x∈[6,22] z∈[8,32]（頂部有天花板；避開東南角塔）
-  const dz = mazeGen(b, { ox: 6, oz: 8, cols: 4, rows: 6, cell: 4, th: 0.8, h: 3.0, col: '#4a4846', entrances: [{ side: 'w', idx: 2 }, { side: 'n', idx: 1 }], ceiling: { y0: 3.0, y1: 3.4, col: '#2c2a28' } });
+  // 城牆（高 6.4，牆頂可行走，與塔頂等高）；南牆中間留城門
+  const wh = 6.4, wt = 2.4;
+  b.box(-24, 0, -24, 24, wh, -24 + wt, stone.wall);
+  b.box(-24, 0, 24 - wt, -3, wh, 24, stone.wall); b.box(3, 0, 24 - wt, 24, wh, 24, stone.wall);
+  b.box(-3, 4.4, 24 - wt, 3, wh, 24, stone.wall);
+  b.box(-24, 0, -24, -24 + wt, wh, 24, stone.wall); b.box(24 - wt, 0, -24, 24, wh, 24, stone.wall);
+  for (let t = -24; t < 24; t += 3) {
+    b.box(t, wh, -24, t + 1.4, wh + 1.0, -24 + 0.6, stone.wall);
+    if (t < -4 || t > 3) b.box(t, wh, 24 - 0.6, t + 1.4, wh + 1.0, 24, stone.wall);
+    b.box(-24, wh, t, -24 + 0.6, wh + 1.0, t + 1.4, stone.wall);
+    b.box(24 - 0.6, wh, t, 24, wh + 1.0, t + 1.4, stone.wall);
+  }
+  // 庭院小物
+  b.boxC(-17, 0, 6, 2.2, 1.0, 2.2, '#5a5a58'); b.boxC(-17, 1.0, 6, 1.3, 0.1, 1.3, '#101418', false);
+  b.spots.code.push({ x: -17, y: 0.03, z: 7.4, hint: '水井旁' });
+  [[-17, 2], [16, -4], [10, 12], [-16, -6]].forEach((p, i) => { mkHay(b, p[0], p[1]); if (i % 2) b.spots.code.push({ x: p[0] + 1.3, y: 0.03, z: p[1], hint: '乾草旁' }); });
+  [[-16, -2], [14, 6], [0, -17], [8, 8]].forEach(p => { b.boxC(p[0], 0.4, p[1], 2.0, 0.6, 1.2, '#4a3424'); b.boxC(p[0] - 0.9, 0, p[1], 0.7, 0.7, 0.1, '#222', false); b.spots.code.push({ x: p[0], y: 0.03, z: p[1] + 1.0, hint: '推車下' }); });
+  // 地牢迷宮 x∈[-10,6] z∈[4,20]（頂部有天花板；避開角塔與城牆）
+  const dz = mazeGen(b, { ox: -10, oz: 4, cols: 4, rows: 4, cell: 4, th: 0.8, h: 3.0, col: '#4a4846', entrances: [{ side: 'w', idx: 2 }, { side: 'n', idx: 1 }], ceiling: { y0: 3.0, y1: 3.4, col: '#2c2a28' } });
   dz.dead.forEach((d, i) => {
     const k = i % 4;
-    if (k === 0 || k === 1) b.spots.code.push({ x: d.x + (b.rng() - 0.5) * 1.2, y: 0.03, z: d.z + (b.rng() - 0.5) * 1.2, hint: '地牢死路' });
+    if (k === 0 || k === 1) b.spots.code.push({ x: d.x + (b.rng() - 0.5) * 1.0, y: 0.03, z: d.z + (b.rng() - 0.5) * 1.0, hint: '地牢死路' });
     else if (k === 2) b.spots.lock.push({ x: d.x, y: 0, z: d.z, yaw: b.rng() * TAU });
     else b.spots.ped.push({ x: d.x, y: 0, z: d.z });
-    if (i % 5 === 4) b.spots.frog.push({ x: d.x + 0.9, y: 0.02, z: d.z - 0.9 });
+    if (i % 4 === 3) b.spots.frog.push({ x: d.x + 0.9, y: 0.02, z: d.z - 0.9 });
   });
   b.spots.patrol.push([dz.center.x, 0, dz.center.z]);
-  // 棺木／牢籠（可藏）
-  [[8, 10], [16, 26]].forEach(p => { mkCoffin(b, p[0] + 1, p[1] + 1); });
-  // 戶外樹木與石頭
-  const avoid = [[-36, -36, 36, 36]];
-  const forest = scatter(b, 110, b.bounds, 4.5, avoid, (x, z) => tree(b, x, z, 0.9 + b.rng() * 0.5, { leaf1: '#2a3a22', leaf2: '#34452a', trunk: '#2a1e16' }));
-  forest.forEach((p, i) => { if (i % 6 === 0) outSpotNear(b, 'code', p[0], p[1], '樹根'); else if (i % 19 === 0) outSpotNear(b, 'lock', p[0], p[1]); else if (i % 17 === 0) outSpotNear(b, 'ped', p[0], p[1]); else if (i % 23 === 0) outSpotNear(b, 'frog', p[0], p[1]); });
-  scatter(b, 14, b.bounds, 6, avoid, (x, z) => bush(b, x, z, { bush: '#2a4a2a', bush2: '#345a34' }));
-  scatter(b, 12, b.bounds, 6, avoid, (x, z) => rock(b, x, z, 0.9 + b.rng() * 0.9));
-  mound(b, 44, 0, 14, 14, 3, '#3a4430'); b.spots.ped.push({ x: 44, y: 1.35, z: 0 });
-  // 火把（城門）
-  [[-5, 31], [5, 31]].forEach(p => lamp(b, p[0], p[1], 2.8, '#ff9a48'));
-  [[-8, 20], [3, 20], [-26, -10], [26, -16]].forEach(p => lamp(b, p[0], p[1], 2.6, '#ff9a48'));
-  // 出生點／巡邏
-  [[0, 0, 44], [-20, 0, 46], [20, 0, 46], [-46, 0, 0], [46, 0, 20], [0, 0, 16], [-20, 0, 16], [-40, 0, -46], [40, 0, -46], [-46, 0, 40], [46, 0, -30], [0, 0, 22]].forEach(p => b.spots.spawn.push(p));
-  [[0, 0, 44], [0, 0, 22], [-20, 0, 16], [-46, 0, 0], [46, 0, 20], [0, 0, -46], [-40, 0, -46], [40, 0, 46], [-24, 0, -4]].forEach(p => b.spots.patrol.push(p));
-  b.portals.push({ a: [0, 6.4, -6], b: [dz.center.x, 0, dz.center.z + 0.5] });
-  b.nav = { seed: [0, 0, 44] };
+  mkCoffin(b, -8, 6); mkCoffin(b, 0, 14);
+  // 戶外
+  const avoid = [[-26, -26, 26, 26]];
+  groundDetail(b, { patches: 22, cols: ['#2a3326', '#343a2c', '#2c2f26'], tufts: 60, stones: 24, avoid });
+  const forest = scatter(b, 42, b.bounds, 4.2, avoid, (x, z) => tree(b, x, z, 0.9 + b.rng() * 0.5, { leaf1: '#2a3a22', leaf2: '#34452a', trunk: '#2a1e16' }));
+  forest.forEach((p, i) => { if (i % 4 === 0) outSpotNear(b, 'code', p[0], p[1], '樹根'); else if (i % 11 === 0) outSpotNear(b, 'lock', p[0], p[1]); else if (i % 9 === 0) outSpotNear(b, 'ped', p[0], p[1]); else if (i % 13 === 0) outSpotNear(b, 'frog', p[0], p[1]); });
+  scatter(b, 8, b.bounds, 6, avoid, (x, z) => bush(b, x, z, { bush: '#2a4a2a', bush2: '#345a34' }));
+  scatter(b, 8, b.bounds, 6, avoid, (x, z) => rock(b, x, z, 0.9 + b.rng() * 0.9));
+  mound(b, 28, 0, 8, 8, 3, '#3a4430'); b.spots.ped.push({ x: 28, y: 1.35, z: 0 });
+  [[-5, 26.5], [5, 26.5]].forEach(p => lamp(b, p[0], p[1], 2.8, '#ff9a48'));
+  [[-14, 0], [14, 0], [-16, -10], [16, 8]].forEach(p => lamp(b, p[0], p[1], 2.6, '#ff9a48'));
+  [[0, 0, 28], [-12, 0, 29], [12, 0, 29], [-29, 0, 0], [29, 0, 12], [0, 0, -17], [-17, 0, -6], [17, 0, -6], [-29, 0, -22], [29, 0, -22], [-29, 0, 24], [8, 0, 10]].forEach(p => b.spots.spawn.push(p));
+  [[0, 0, 28], [0, 0, -17], [-17, 0, 0], [17, 0, 0], [-29, 0, -10], [29, 0, 12], [0, 0, 22]].forEach(p => b.spots.patrol.push(p));
+  b.portals.push({ a: [-6.5, 6.4, -5], b: [dz.center.x, 0, dz.center.z + 0.5] });
   return b;
 }
 
@@ -1412,6 +1511,18 @@ function pushPyr(a, cx, y0, cz, w, d, h, c, em) {
   };
   const A = [x0, y0, z0], B = [x1, y0, z0], C = [x1, y0, z1], D = [x0, y0, z1], T = [cx, ty, cz];
   tri(A, B, T); tri(B, C, T); tri(C, D, T); tri(D, A, T);
+}
+
+function pushPyrInv(a, cx, ytop, cz, w, d, h, c, em) {   // 尖端朝下的四角錐
+  const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2, by = ytop - h;
+  const tri = (p, q, r2) => {
+    const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2], vx = r2[0] - p[0], vy = r2[1] - p[1], vz = r2[2] - p[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    for (const s of [p, q, r2]) a.push(s[0], s[1], s[2], nx, ny, nz, c[0], c[1], c[2], em);
+  };
+  const A = [x0, ytop, z0], B = [x1, ytop, z0], C = [x1, ytop, z1], D = [x0, ytop, z1], T = [cx, by, cz];
+  tri(B, A, T); tri(C, B, T); tri(D, C, T); tri(A, D, T);
 }
 
 const VS = `
@@ -1490,7 +1601,7 @@ class Renderer {
   freeMesh(m) { if (m && m.buf) this.gl.deleteBuffer(m.buf); }
   /* 靜態地圖分塊 */
   buildStatic(builder) {
-    const CH = 20, map = new Map();
+    const CH = 12, map = new Map();
     const get = (x, z) => {
       const ix = Math.floor(x / CH), iz = Math.floor(z / CH), k = ix * 4096 + iz;
       let c = map.get(k);
@@ -1525,11 +1636,12 @@ class Renderer {
     const gl = this.gl, th = this.theme, L = this.loc;
     this.resize();
     const aspect = this.canvas.width / this.canvas.height;
-    M4.perspective(this.proj, (cam.fov || 72) * Math.PI / 180, aspect, 0.08, 140);
+    M4.perspective(this.proj, (cam.fov || 72) * Math.PI / 180, aspect, 0.12, 110);
     const f = fwdVec(cam.yaw, cam.pitch);
     M4.lookAt(this.view, cam.x, cam.y, cam.z, cam.x + f[0], cam.y + f[1], cam.z + f[2]);
     M4.mul(this.vp, this.proj, this.view);
-    this.cam = cam; this.fwd = f; this.tanH = Math.tan((cam.fov || 72) * Math.PI / 360) * aspect;
+    this.cam = cam; this.fwd = f;
+    this.cullDist = Math.min(this.drawDist, th.far * this.fogScale()) + 1;   // 霧完全蓋住的距離之外不用畫 this.tanH = Math.tan((cam.fov || 72) * Math.PI / 360) * aspect;
     this.tanV = Math.tan((cam.fov || 72) * Math.PI / 360);
     gl.clearColor(th.fog[0], th.fog[1], th.fog[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -1560,7 +1672,7 @@ class Renderer {
   /* 視錐＋距離剔除 */
   visible(cx, cy, cz, r) {
     const c = this.cam, dx = cx - c.x, dy = cy - c.y, dz = cz - c.z;
-    const d2 = dx * dx + dy * dy + dz * dz, lim = this.drawDist + r;
+    const d2 = dx * dx + dy * dy + dz * dz, lim = (this.cullDist || this.drawDist) + r;
     if (d2 > lim * lim) return false;
     if (d2 < r * r * 1.5) return true;
     const f = this.fwd;
@@ -1580,6 +1692,19 @@ class Renderer {
       this.bind(c.mesh); gl.drawArrays(gl.TRIANGLES, 0, c.mesh.count);
       this.stats.chunks++;
     }
+  }
+  /* 擺動的部件：以 (mx,my,mz,yaw) 為整體座標，(lx,ly,lz) 為關節位置，rx/rz 為擺動角 */
+  drawPart(mesh, mx, my, mz, yaw, lx, ly, lz, rx, rz, o) {
+    const gl = this.gl, L = this.loc; o = o || {};
+    M4.part(this.mM, mx, my, mz, yaw, lx, ly, lz, rx || 0, rz || 0, 1);
+    gl.uniformMatrix4fv(L.uM, false, this.mM);
+    const t = o.tint || [1, 1, 1];
+    gl.uniform3f(L.uTint, t[0], t[1], t[2]); gl.uniform1f(L.uEmitAdd, o.emit || 0);
+    const al = o.alpha === undefined ? 1 : o.alpha;
+    if (al < 1) gl.enable(gl.BLEND); else gl.disable(gl.BLEND);
+    gl.uniform1f(L.uAlpha, al);
+    this.bind(mesh); gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
+    this.stats.dyn++;
   }
   drawDyn(mesh, x, y, z, yaw, sx, sy, sz, o) {
     const gl = this.gl, L = this.loc;
@@ -1644,14 +1769,71 @@ function buildModels(R) {
   });
   M.portalFrame = mk(a => { pushBox(a, -1.0, 0, -0.12, -0.8, 2.6, 0.12, [0.2, 0.2, 0.28], 0); pushBox(a, 0.8, 0, -0.12, 1.0, 2.6, 0.12, [0.2, 0.2, 0.28], 0); pushBox(a, -1.0, 2.6, -0.12, 1.0, 2.8, 0.12, [0.2, 0.2, 0.28], 0); });
   M.portalDisc = mk(a => { pushBox(a, -0.8, 0.05, -0.03, 0.8, 2.6, 0.03, [0.5, 0.35, 1.0], 1.0); });
-  M.monster = mk(a => {
-    const k = [0.06, 0.05, 0.07];
-    pushBox(a, -0.32, 0.9, -0.2, 0.32, 1.9, 0.2, k, 0);              // 軀幹
-    pushBox(a, -0.26, 1.9, -0.24, 0.26, 2.4, 0.24, [0.1, 0.09, 0.11], 0); // 頭
-    pushBox(a, -0.17, 2.1, -0.26, -0.07, 2.2, -0.24, [1, 0.15, 0.1], 1.4); pushBox(a, 0.07, 2.1, -0.26, 0.17, 2.2, -0.24, [1, 0.15, 0.1], 1.4); // 眼
-    pushBox(a, -0.62, 0.45, -0.12, -0.34, 1.85, 0.12, k, 0); pushBox(a, 0.34, 0.45, -0.12, 0.62, 1.85, 0.12, k, 0); // 長手臂
-    pushBox(a, -0.26, 0, -0.14, -0.04, 0.9, 0.14, k, 0); pushBox(a, 0.04, 0, -0.14, 0.26, 0.9, 0.14, k, 0);
-  });
+  // ===== 怪物：駝背、巨大、噁心（由約 150 個小方塊組成，分成可擺動的部件）=====
+  {
+    const fl = [0.36, 0.33, 0.30], dk = [0.2, 0.17, 0.16], red = [0.5, 0.07, 0.08], bone = [0.84, 0.8, 0.66], slime = [0.45, 0.95, 0.22], pale = [0.58, 0.5, 0.44];
+    const mon = {};
+    mon.body = mk(a => {
+      pushBox(a, -0.5, 0.85, -0.35, 0.5, 1.4, 0.4, dk, 0);                               // 骨盆
+      pushBox(a, -0.44, 0.92, -0.55, 0.44, 1.46, -0.33, pale, 0.14);                     // 腫脹蒼白的腹部
+      pushBox(a, -0.3, 1.06, -0.6, 0.3, 1.3, -0.54, [0.62, 0.16, 0.16], 0.32);            // 潰爛的腹口
+      pushBox(a, -0.12, 0.9, -0.62, 0.12, 1.08, -0.56, slime, 0.8);                      // 黏液囊
+      pushBox(a, -0.78, 1.4, -0.62, 0.78, 2.1, 0.36, fl, 0);                              // 寬厚的胸腔
+      pushBox(a, -0.62, 1.45, -0.68, 0.62, 2.02, -0.6, red, 0.1);                         // 剝開的肌肉
+      for (let i = 0; i < 5; i++) pushBox(a, -0.64, 1.5 + i * 0.11, -0.74, 0.64, 1.55 + i * 0.11, -0.66, bone, 0.06);   // 外露肋骨
+      for (const vx of [-0.45, -0.15, 0.2, 0.5]) pushBox(a, vx, 1.5, -0.7, vx + 0.025, 2.0, -0.66, [0.75, 0.1, 0.1], 0.45);   // 血管
+      pushBox(a, -0.46, 1.95, 0.0, 0.46, 2.52, 0.68, dk, 0);                              // 背上的駝峰
+      for (let i = 0; i < 6; i++) pushPyr(a, -0.34 + i * 0.136, 2.52, 0.3 + (i % 2) * 0.1, 0.13, 0.13, 0.38 + (i % 3) * 0.1, bone, 0);   // 脊刺
+      for (const sx of [-1, 1]) {
+        pushBox(a, sx * 0.72, 1.62, -0.22, sx * 1.02, 2.18, 0.22, [0.42, 0.36, 0.3], 0);  // 肩部腫瘤
+        pushBox(a, sx * 0.8, 2.14, -0.12, sx * 0.98, 2.34, 0.1, slime, 0.75);             // 發光膿包
+        pushBox(a, sx * 0.86, 1.7, -0.3, sx * 0.94, 1.9, -0.2, red, 0.3);                // 潰瘍
+      }
+      pushBox(a, -0.3, 0.55, -0.1, 0.3, 0.9, 0.3, dk, 0);                                 // 腰部
+    });
+    mon.head = mk(a => {      // 關節在頸部 (0,0,0)，頭向前（-Z）伸出
+      pushBox(a, -0.37, -0.05, -0.66, 0.37, 0.52, 0.12, [0.62, 0.6, 0.52], 0);          // 頭骨
+      pushBox(a, -0.4, 0.28, -0.72, 0.4, 0.4, -0.5, dk, 0);                               // 眉骨
+      for (const sx of [-1, 1]) pushBox(a, sx * 0.4, 0.04, -0.55, sx * 0.5, 0.3, -0.2, fl, 0);   // 臉頰腫塊
+      for (const sx of [-1, 1]) { pushBox(a, sx * 0.1, 0.3, -0.74, sx * 0.27, 0.46, -0.68, [1.0, 0.95, 0.15], 2.0); pushBox(a, sx * 0.14, 0.34, -0.752, sx * 0.2, 0.42, -0.738, [0.1, 0, 0], 0); }   // 大眼（黃綠發光，細瞳孔）
+      for (const [ex, ey] of [[0, 0.46], [-0.33, 0.14], [0.33, 0.14]]) pushBox(a, ex - 0.05, ey, -0.72, ex + 0.05, ey + 0.1, -0.68, [1.0, 0.4, 0.1], 1.8);   // 多餘的小眼
+      pushBox(a, -0.1, 0.1, -0.7, 0.1, 0.2, -0.66, [0.04, 0, 0], 0);                      // 鼻孔
+      for (let i = 0; i < 9; i++) pushPyrInv(a, -0.32 + i * 0.08, 0.0, -0.64, 0.07, 0.07, 0.17 + (i % 2) * 0.07, bone, 0.08);   // 上排尖牙
+      for (const sx of [-1, 1]) pushPyr(a, sx * 0.3, 0.52, -0.08, 0.14, 0.14, 0.55, bone, 0);   // 犄角
+      for (const sx of [-1, 1]) pushPyr(a, sx * 0.44, 0.1, -0.1, 0.1, 0.1, 0.3, dk, 0);
+    });
+    mon.jaw = mk(a => {       // 下顎，關節在 (0,0,0)
+      pushBox(a, -0.31, -0.2, -0.68, 0.31, -0.04, 0.0, [0.5, 0.46, 0.4], 0);
+      for (let i = 0; i < 8; i++) pushPyr(a, -0.27 + i * 0.077, -0.04, -0.64, 0.065, 0.065, 0.16 + (i % 2) * 0.07, bone, 0.08);   // 下排尖牙
+      pushBox(a, -0.08, -0.12, -0.7, 0.08, -0.06, -0.12, [0.7, 0.1, 0.15], 0.35);        // 舌頭
+      pushBox(a, -0.06, -0.5, -0.64, 0.06, -0.12, -0.56, [0.7, 0.1, 0.15], 0.35);         // 垂下的長舌
+    });
+    const arm = sx => mk(a => {   // 關節在肩膀 (0,0,0)，向下垂至接近地面
+      pushBox(a, -0.12, -0.88, -0.12, 0.12, 0.05, 0.12, fl, 0);                           // 上臂
+      pushBox(a, -0.15, -1.0, -0.15, 0.15, -0.82, 0.15, red, 0.12);                       // 肘部肉瘤
+      pushBox(a, -0.09, -1.66, -0.1, 0.09, -0.92, 0.1, dk, 0);                            // 前臂
+      pushBox(a, -0.15, -1.82, -0.17, 0.15, -1.62, 0.1, fl, 0);                           // 手掌
+      for (let i = 0; i < 4; i++) pushPyrInv(a, -0.11 + i * 0.073, -1.8, -0.06 + (i % 2) * 0.04, 0.06, 0.06, 0.34 + (i % 2) * 0.06, bone, 0.06);   // 爪
+      pushBox(a, sx * 0.1, -0.7, -0.08, sx * 0.13, -0.3, 0.08, red, 0.3);                  // 傷口
+    });
+    mon.armL = arm(-1); mon.armR = arm(1);
+    const leg = () => mk(a => {   // 關節在髖部 (0,0,0)
+      pushBox(a, -0.17, -0.62, -0.16, 0.17, 0.04, 0.16, fl, 0);
+      pushBox(a, -0.14, -0.72, -0.13, 0.14, -0.56, 0.22, dk, 0);
+      pushBox(a, -0.1, -0.96, 0.02, 0.1, -0.64, 0.22, dk, 0);
+      pushBox(a, -0.15, -0.96, -0.4, 0.15, -0.86, 0.16, fl, 0);
+      for (let i = 0; i < 3; i++) pushPyr(a, -0.09 + i * 0.09, -0.96, -0.46, 0.07, 0.12, 0.1, bone, 0);
+    });
+    mon.legL = leg(); mon.legR = leg();
+    mon.tend = [0, 1, 2, 3].map(k => mk(a => {   // 背上的觸手，向上延伸
+      let y = 0, w = 0.1;
+      for (let i = 0; i < 6; i++) { pushBox(a, -w / 2, y, -w / 2, w / 2, y + 0.3, w / 2, i % 2 ? red : dk, 0.1 + i * 0.04); y += 0.28; w *= 0.84; }
+      pushBox(a, -0.05, y, -0.05, 0.05, y + 0.1, 0.05, slime, 1.2);
+    }));
+    mon.drip = mk(a => pushBox(a, -0.025, -0.1, -0.025, 0.025, 0.04, 0.025, slime, 1.3));
+    mon.blob = mk(a => pushBox(a, -1.0, 0, -1.0, 1.0, 0.012, 1.0, [0.02, 0.02, 0.02], 0));
+    M.mon = mon;
+  }
   M.pBody = mk(a => { pushBox(a, -0.26, 0.8, -0.15, 0.26, 1.4, 0.15, W, 0.05); pushBox(a, -0.42, 0.85, -0.1, -0.26, 1.4, 0.1, W, 0.05); pushBox(a, 0.26, 0.85, -0.1, 0.42, 1.4, 0.1, W, 0.05); });
   M.pHead = mk(a => { pushBox(a, -0.18, 1.4, -0.18, 0.18, 1.76, 0.18, [0.86, 0.7, 0.58], 0.05); pushBox(a, -0.19, 1.62, -0.19, 0.19, 1.78, 0.19, [0.15, 0.1, 0.08], 0.0); });
   M.pLegs = mk(a => { pushBox(a, -0.22, 0, -0.1, -0.02, 0.8, 0.1, [0.15, 0.17, 0.25], 0); pushBox(a, 0.02, 0, -0.1, 0.22, 0.8, 0.1, [0.15, 0.17, 0.25], 0); });
@@ -1706,6 +1888,12 @@ const Sfx = (() => {
     win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.28, 'triangle', 0.2, i * 0.14)); tone(1047, 0.7, 'triangle', 0.18, 0.6); },
     lose() { [392, 330, 262, 196].forEach((f, i) => tone(f, 0.4, 'sawtooth', 0.14, i * 0.22)); },
     click() { tone(520, 0.05, 'square', 0.07); },
+    growl(v = 1) {   // 低沉的嘶吼
+      if (!ctx) return;
+      tone(62, 1.1, 'sawtooth', 0.28 * v, 0, -26); tone(95, 0.9, 'square', 0.1 * v, 0.05, -40);
+      noise(1.0, 0.22 * v, 420, 2, 0, 'lowpass'); noise(0.7, 0.1 * v, 1500, 3, 0.15, 'bandpass');
+    },
+    stomp(v = 1) { if (!ctx) return; tone(48, 0.16, 'sine', 0.32 * v); noise(0.1, 0.12 * v, 220, 1, 0, 'lowpass'); if (Math.random() < 0.4) noise(0.12, 0.05 * v, 900, 4, 0.05, 'bandpass'); },
     place() { tone(440, 0.1, 'triangle', 0.18); tone(880, 0.3, 'sine', 0.2, 0.08); },
     hide() { noise(0.15, 0.1, 500, 1); },
     chat() { tone(740, 0.06, 'sine', 0.08); },
@@ -1866,7 +2054,7 @@ const COLORS = [
   { id: 3, name: '黃', hex: '#f2c744', rgb: [0.95, 0.78, 0.27] },
 ];
 const SPEED = { walk: 3.6, run: 6.0, crouch: 1.8 };
-const MON = { patrol: 1.7, invest: 3.0, chase: 5.4, view: 20, fov: 0.42, seeNeeded: 2.0, giveUp: 4.0, catchR: 1.15 };
+const MON = { patrol: 1.7, invest: 3.0, chase: 5.4, view: 20, fov: 0.42, seeNeeded: 2.0, giveUp: 4.0, catchR: 1.35, lureTime: 8.0, lureMax: 12.5 };
 const ROUND_TIME = 1200;
 const F_CROUCH = 1, F_HIDDEN = 2, F_RUN = 4, F_MOVE = 8, F_GROUND = 16;
 
@@ -1958,9 +2146,9 @@ class Sim {
       }
       return out;
     };
-    const locks = pickSpaced('lock', 4, 14);
-    const peds = pickSpaced('ped', 4, 14, locks.map(i => b.spots.lock[i]));
-    const codes = pickSpaced('code', 4, 10);
+    const locks = pickSpaced('lock', 4, 11);
+    const peds = pickSpaced('ped', 4, 11, locks.map(i => b.spots.lock[i]));
+    const codes = pickSpaced('code', 4, 7);
     this.locks = locks.map((spot, c) => ({ spot, open: false, by: null }));
     this.peds = peds.map(spot => ({ spot }));
     this.codes = codes.map(spot => ({ spot, value: this.newCode() }));
@@ -2006,7 +2194,7 @@ class Sim {
           this.emit('all', { t: 'unlocked', c: m.c, by: pid, name: p.name });
         } else {
           this.emit(pid, { t: 'wrong', c: m.c });
-          this.noise(s.x, s.y, s.z, 32, true);
+          this.lure(s, m.c);
         }
         break;
       }
@@ -2047,13 +2235,45 @@ class Sim {
     }
   }
   chat(p, s) { s = String(s || '').slice(0, 60); if (s) this.emit('all', { t: 'chat', n: p.name, s }); }
+  /* ---------- 輸錯密碼：怪物一定會在約 10 秒內趕到那個鎖 ---------- */
+  lure(s, color) {
+    const m = this.mon, nav = this.nav;
+    if (m.st === 'chase') return false;          // 已經在追人時，不會被引開（專心追眼前的人）
+    const target = nav.nearest(s.x, s.y, s.z, 6);
+    const a = nav.nearest(m.x, m.y, m.z, 4);
+    if (target < 0 || a < 0) return false;
+    let path = nav.path(a, target, 120000);
+    if (!path) return false;
+    const plen = pth => { let L = 0; for (let i = 1; i < pth.length; i++) L += Math.hypot(nav.nx[pth[i]] - nav.nx[pth[i - 1]], nav.ny[pth[i]] - nav.ny[pth[i - 1]], nav.nz[pth[i]] - nav.nz[pth[i - 1]]); return L; };
+    let L = plen(path), speed = Math.max(MON.invest, L / MON.lureTime), tele = false; const L0 = L;
+    if (speed > MON.lureMax) {
+      // 太遠：若沒有任何玩家看得到／在附近，就把怪物往前「挪」到趕得上的位置（看不見才挪）
+      const keep = MON.lureMax * MON.lureTime;
+      let acc = 0, k = path.length - 1;
+      while (k > 0 && acc < keep) { const n0 = path[k], n1 = path[k - 1]; acc += Math.hypot(nav.nx[n0] - nav.nx[n1], nav.ny[n0] - nav.ny[n1], nav.nz[n0] - nav.nz[n1]); k--; }
+      const near = (x, y, z) => [...this.players.values()].some(p => p.st === 'alive' && (Math.hypot(p.x - x, p.y - y, p.z - z) < 6 || (Math.hypot(p.x - x, p.z - z) < 45 && this.world.los(p.x, p.y + 1.5, p.z, x, y + 1.6, z))));
+      if (k > 0 && !near(m.x, m.y, m.z)) {
+        // 從「剛好趕得上」的位置開始，往鎖的方向找第一個沒人看得到的落點
+        while (k < path.length - 1 && near(nav.nx[path[k]], nav.ny[path[k]], nav.nz[path[k]])) k++;
+      } else k = 0;
+      if (k > 0 && !near(nav.nx[path[k]], nav.ny[path[k]], nav.nz[path[k]])) {
+        m.x = nav.nx[path[k]]; m.y = nav.ny[path[k]]; m.z = nav.nz[path[k]]; m.node = path[k];
+        path = path.slice(k); L = plen(path); speed = Math.max(MON.invest, L / MON.lureTime); tele = true;
+      }
+      speed = Math.min(speed, MON.lureMax);
+    }
+    m.st = 'investigate'; m.inv = { x: s.x, y: s.y, z: s.z }; m.path = path; m.pi = path.length > 1 ? 1 : 0;
+    m.idle = 0; m.cool = 0; m.rushSpeed = speed; m.target = null; this.lastLure = { L0: Math.round(L0), L: Math.round(L), speed: Math.round(speed * 10) / 10, tele };
+    this.emit('all', { t: 'lure', c: color, x: s.x, y: s.y, z: s.z, eta: Math.round(L / speed * 10) / 10 });
+    return true;
+  }
   /* ---------- 噪音 ---------- */
   noise(x, y, z, r, strong) {
     const m = this.mon;
     if (m.st === 'chase' || m.cool > 0) return;
     if (Math.hypot(m.x - x, m.z - z) > r || Math.abs(m.y - y) > 7) return;
     if (m.st === 'investigate' && !strong) return;
-    m.st = 'investigate'; m.inv = { x, y, z }; m.path = null; m.idle = 0;
+    m.st = 'investigate'; m.inv = { x, y, z }; m.path = null; m.idle = 0; m.rushSpeed = 0;
     const n = this.nav.nearest(x, y, z, 4);
     if (n >= 0) this.monPathTo(n); else m.st = 'patrol';
   }
@@ -2069,7 +2289,7 @@ class Sim {
   }
   monGiveUp() {
     const m = this.mon;
-    m.st = 'patrol'; m.target = null; m.path = null; m.lost = 0; m.cool = 1.2;
+    m.st = 'patrol'; m.target = null; m.path = null; m.lost = 0; m.cool = 1.2; m.rushSpeed = 0;
     // 回到最近的巡邏點
     let bi = 0, bd = 1e9; const nav = this.nav;
     this.bundle.route.forEach((n, i) => { const d = (nav.nx[n] - m.x) ** 2 + (nav.nz[n] - m.z) ** 2 + ((nav.ny[n] - m.y) * 4) ** 2; if (d < bd) { bd = d; bi = i; } });
@@ -2120,7 +2340,7 @@ class Sim {
     if (m.st !== 'chase' && m.cool <= 0) {
       for (const p of this.players.values()) {
         if (p.seen >= MON.seeNeeded && this.monSee(p) && p.prot <= 0) {
-          m.st = 'chase'; m.target = p.id; m.lost = 0; m.repath = 0; m.path = null;
+          m.st = 'chase'; m.target = p.id; m.lost = 0; m.repath = 0; m.path = null; m.rushSpeed = 0;
           this.emit(p.id, { t: 'alert' });
           break;
         }
@@ -2151,7 +2371,7 @@ class Sim {
         }
       }
     } else if (m.st === 'investigate') {
-      const done = this.monMove(dt, MON.invest);
+      const done = this.monMove(dt, m.rushSpeed || MON.invest);
       if (done || !m.path) {
         m.idle += dt;
         if (m.idle > 2.2) this.monGiveUp();
@@ -2292,7 +2512,7 @@ const G = {
   room: { code: '', map: 0, players: [] },
   mapIdx: 0, bundle: null, chunks: null, chunksIdx: -1, miniImg: null,
   me: null, others: new Map(), mon: { x: 0, y: 0, z: 0, yaw: 0, tx: 0, ty: 0, tz: 0, tyaw: 0, st: 0, target: '' },
-  codes: [], locks: [], peds: [], frog: { spot: 0, found: false }, notes: {},
+  codes: [], locks: [], peds: [], frog: { spot: 0, found: false }, notes: {}, lurePing: null,
   tm: ROUND_TIME, countdown: 0, simDelay: 0, menuOpen: false, keypad: null, chatOpen: false,
   sendT: 0, snapT: 0, inter: null, flash: true, locked: false, cine: null, ended: false, alertT: 0,
   eyeY: 1.55, bob: 0, stepD: 0, wasGround: true, lastHP: 3, portalCd: 0, results: null, roundStats: { hides: 0 }, hbOn: false,
@@ -2492,6 +2712,13 @@ function clientHandle(m) {
     case 'lockmsg': toast(m.s); break;
     case 'placed': Sfx.place(); break;
     case 'alert': Sfx.alert(); G.alertT = 1.5; break;
+    case 'lure': {
+      G.lurePing = { x: m.x, z: m.z, t: 12 };
+      const mo = G.mon, d = mo.init ? Math.hypot(mo.x - G.me.x, mo.z - G.me.z) : 40;
+      Sfx.growl(clamp(1.1 - d / 55, 0.2, 1));
+      toast(`⚠ ${COLORS[m.c].name}色鎖的錯誤聲響引來了怪物！約 ${Math.round(m.eta)} 秒後抵達（小地圖橘圈）`, 5000);
+      break;
+    }
     case 'caught': onCaught(m); break;
     case 'reset': {
       applyWorld(m.world);
@@ -2944,6 +3171,7 @@ function drawMinimap() {
   x.globalAlpha = 0.9; x.drawImage(G.miniImg, 0, 0); x.globalAlpha = 1;
   const dot = (px, pz, col, r) => { x.fillStyle = col; x.beginPath(); x.arc((px - bd.x0) * 2, (pz - bd.z0) * 2, r, 0, TAU); x.fill(); };
   G.others.forEach(o => { if (o.st === 0 && o.init && !(o.flags & F_HIDDEN)) dot(o.x, o.z, '#46c37b', 5); });
+  if (G.lurePing) { const lp = G.lurePing, ph = (performance.now() % 900) / 900; x.strokeStyle = `rgba(255,170,40,${(1 - ph).toFixed(2)})`; x.lineWidth = 3; x.beginPath(); x.arc((lp.x - bd.x0) * 2, (lp.z - bd.z0) * 2, 6 + ph * 22, 0, TAU); x.stroke(); dot(lp.x, lp.z, '#ffaa28', 5); }
   const mo = G.mon; if (mo.init) { dot(mo.x, mo.z, '#ff3b3b', 8); x.strokeStyle = 'rgba(255,60,60,.5)'; x.lineWidth = 2; x.beginPath(); x.arc((mo.x - bd.x0) * 2, (mo.z - bd.z0) * 2, 14 + (performance.now() % 1000) / 1000 * 10, 0, TAU); x.stroke(); }
   x.restore();
   x.fillStyle = '#fff'; x.beginPath(); x.moveTo(w / 2, h / 2 - 11); x.lineTo(w / 2 + 7, h / 2 + 8); x.lineTo(w / 2 - 7, h / 2 + 8); x.closePath(); x.fill();
@@ -3042,8 +3270,7 @@ function renderFrame(dt) {
     });
   });
   // 怪物
-  const mo = G.mon;
-  if (mo.init) R.drawDyn(MODELS.monster, mo.x, mo.y, mo.z, mo.yaw, 1, 1, 1, { emit: mo.st === 2 ? 0.25 : 0 });
+  drawMonster(t);
   // 其他玩家
   G.others.forEach(o => {
     if (o.st !== 0 || !o.init || (o.flags & F_HIDDEN)) return;
@@ -3053,6 +3280,36 @@ function renderFrame(dt) {
     R.drawDyn(MODELS.pLegs, o.x, o.y, o.z, o.yaw, 1, cr, 1);
   });
   updateTags();
+}
+
+/* 怪物：駝背巨獸，由多個可擺動的部件組成（肢體隨腳步擺動、下顎開合、觸手搖曳、黏液滴落） */
+function drawMonster(t) {
+  const mo = G.mon, M = MODELS.mon; if (!mo.init) return;
+  const x = mo.x, z = mo.z, yw = mo.yaw, ph = mo.phase || 0, chase = mo.st === 2;
+  if (!R.visible(x, mo.y + 1.2, z, 3.2)) return;
+  const bob = Math.sin(ph * 2) * 0.05 + Math.sin(t * 1.7) * 0.02, y0 = mo.y + bob;
+  const cy = Math.cos(yw), sy = Math.sin(yw);
+  const W = (lx, ly, lz) => [x + cy * lx + sy * lz, y0 + ly, z - sy * lx + cy * lz];
+  R.drawDyn(M.blob, x, mo.y + 0.02, z, yw, 1, 1, 1, { alpha: 0.5 });
+  R.drawDyn(M.body, x, y0, z, yw, 1, 1, 1, { emit: chase ? 0.18 : 0.04 + 0.03 * Math.sin(t * 3) });
+  const twitch = chase ? Math.sin(t * 13) * 0.12 : Math.sin(t * 2.3) * 0.05;
+  const headRx = (chase ? 0.28 : 0.12) + Math.sin(ph * 2) * 0.04;
+  const open = chase ? 0.55 + 0.18 * Math.sin(t * 11) : 0.18 + 0.12 * Math.sin(t * 2.1);
+  R.drawPart(M.head, x, y0, z, yw, 0, 1.95, -0.55, headRx, twitch, { emit: 0.12 + (chase ? 0.25 : 0) });
+  R.drawPart(M.jaw, x, y0, z, yw, 0, 1.95, -0.55, headRx - open, twitch);
+  const swL = chase ? 1.0 + Math.sin(t * 8) * 0.35 : Math.sin(ph) * 0.45, swR = chase ? 1.0 + Math.sin(t * 8 + 2) * 0.35 : -Math.sin(ph) * 0.45;
+  R.drawPart(M.armL, x, y0, z, yw, -0.95, 2.0, -0.1, swL, -0.1);
+  R.drawPart(M.armR, x, y0, z, yw, 0.95, 2.0, -0.1, swR, 0.1);
+  const lg = Math.sin(ph) * 0.7;
+  R.drawPart(M.legL, x, y0, z, yw, -0.32, 0.95, 0.05, lg, 0);
+  R.drawPart(M.legR, x, y0, z, yw, 0.32, 0.95, 0.05, -lg, 0);
+  const tp = [[-0.28, 2.3, 0.45], [0.28, 2.3, 0.45], [-0.12, 2.5, 0.5], [0.12, 2.5, 0.5]];
+  for (let k = 0; k < 4; k++) R.drawPart(M.tend[k], x, y0, z, yw, tp[k][0], tp[k][1], tp[k][2], 0.9 + k * 0.1 + Math.sin(t * 2.2 + k) * 0.35, (k % 2 ? 0.3 : -0.3) + Math.sin(t * 1.7 + k * 2) * 0.25, { emit: 0.05 });
+  for (let k = 0; k < 3; k++) {
+    const f = (t * 1.1 + k * 0.37) % 1, src = k === 2 ? [0.3, 1.0, -0.62] : [(k - 0.5) * 0.12, 1.75, -1.15];
+    const w = W(src[0], src[1] - f * (k === 2 ? 1.0 : 1.7), src[2]);
+    R.drawDyn(M.drip, w[0], w[1], w[2], yw, 1, 1, 1, { maxDist: 24 });
+  }
 }
 
 function hudFrame(dt) {
@@ -3254,7 +3511,18 @@ function frame(now) {
     const eyeT = G.me.crouch ? 1.0 : 1.55; G.eyeY += (eyeT - G.eyeY) * Math.min(1, 10 * dt);
     const k = Math.min(1, 14 * dt);
     G.others.forEach(o => { if (!o.init) return; o.x += (o.tx - o.x) * k; o.y += (o.ty - o.y) * k; o.z += (o.tz - o.z) * k; o.yaw += angDiff(o.yaw, o.tyaw) * k; o.pitch += (o.tpitch - o.pitch) * k; });
-    const mo = G.mon; if (mo.init) { mo.x += (mo.tx - mo.x) * k; mo.y += (mo.ty - mo.y) * k; mo.z += (mo.tz - mo.z) * k; mo.yaw += angDiff(mo.yaw, mo.tyaw) * k; }
+    const mo = G.mon;
+    if (mo.init) {
+      const ox = mo.x, oz = mo.z;
+      mo.x += (mo.tx - mo.x) * k; mo.y += (mo.ty - mo.y) * k; mo.z += (mo.tz - mo.z) * k; mo.yaw += angDiff(mo.yaw, mo.tyaw) * k;
+      const moved = Math.hypot(mo.x - ox, mo.z - oz);
+      const sp0 = Math.floor((mo.phase || 0) / Math.PI);
+      mo.phase = (mo.phase || 0) + Math.min(moved, 1.0) * 2.0;
+      const dM = G.me ? Math.hypot(mo.x - G.me.x, mo.z - G.me.z) : 99;
+      if (Math.floor(mo.phase / Math.PI) !== sp0 && dM < 30) Sfx.stomp(clamp(1.1 - dM / 30, 0.1, 1) * (mo.st === 2 ? 1 : 0.7));
+      if (mo.st !== mo.prevSt) { if (mo.st === 2 && dM < 45) Sfx.growl(clamp(1.1 - dM / 45, 0.2, 1)); mo.prevSt = mo.st; }
+    }
+    if (G.lurePing) { G.lurePing.t -= dt; if (G.lurePing.t <= 0) G.lurePing = null; }
     computeInteract();
     if (G.cine) G.cine.t += dt;
   } else if (G.mode === 'result' && G.cine) G.cine.t += dt;

@@ -35,6 +35,18 @@ function pushPyr(a, cx, y0, cz, w, d, h, c, em) {
   tri(A, B, T); tri(B, C, T); tri(C, D, T); tri(D, A, T);
 }
 
+function pushPyrInv(a, cx, ytop, cz, w, d, h, c, em) {   // 尖端朝下的四角錐
+  const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2, by = ytop - h;
+  const tri = (p, q, r2) => {
+    const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2], vx = r2[0] - p[0], vy = r2[1] - p[1], vz = r2[2] - p[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+    for (const s of [p, q, r2]) a.push(s[0], s[1], s[2], nx, ny, nz, c[0], c[1], c[2], em);
+  };
+  const A = [x0, ytop, z0], B = [x1, ytop, z0], C = [x1, ytop, z1], D = [x0, ytop, z1], T = [cx, by, cz];
+  tri(B, A, T); tri(C, B, T); tri(D, C, T); tri(A, D, T);
+}
+
 const VS = `
 attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute float aEm;
 uniform mat4 uVP; uniform mat4 uM;
@@ -111,7 +123,7 @@ class Renderer {
   freeMesh(m) { if (m && m.buf) this.gl.deleteBuffer(m.buf); }
   /* 靜態地圖分塊 */
   buildStatic(builder) {
-    const CH = 20, map = new Map();
+    const CH = 12, map = new Map();
     const get = (x, z) => {
       const ix = Math.floor(x / CH), iz = Math.floor(z / CH), k = ix * 4096 + iz;
       let c = map.get(k);
@@ -146,11 +158,12 @@ class Renderer {
     const gl = this.gl, th = this.theme, L = this.loc;
     this.resize();
     const aspect = this.canvas.width / this.canvas.height;
-    M4.perspective(this.proj, (cam.fov || 72) * Math.PI / 180, aspect, 0.08, 140);
+    M4.perspective(this.proj, (cam.fov || 72) * Math.PI / 180, aspect, 0.12, 110);
     const f = fwdVec(cam.yaw, cam.pitch);
     M4.lookAt(this.view, cam.x, cam.y, cam.z, cam.x + f[0], cam.y + f[1], cam.z + f[2]);
     M4.mul(this.vp, this.proj, this.view);
-    this.cam = cam; this.fwd = f; this.tanH = Math.tan((cam.fov || 72) * Math.PI / 360) * aspect;
+    this.cam = cam; this.fwd = f;
+    this.cullDist = Math.min(this.drawDist, th.far * this.fogScale()) + 1;   // 霧完全蓋住的距離之外不用畫 this.tanH = Math.tan((cam.fov || 72) * Math.PI / 360) * aspect;
     this.tanV = Math.tan((cam.fov || 72) * Math.PI / 360);
     gl.clearColor(th.fog[0], th.fog[1], th.fog[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -181,7 +194,7 @@ class Renderer {
   /* 視錐＋距離剔除 */
   visible(cx, cy, cz, r) {
     const c = this.cam, dx = cx - c.x, dy = cy - c.y, dz = cz - c.z;
-    const d2 = dx * dx + dy * dy + dz * dz, lim = this.drawDist + r;
+    const d2 = dx * dx + dy * dy + dz * dz, lim = (this.cullDist || this.drawDist) + r;
     if (d2 > lim * lim) return false;
     if (d2 < r * r * 1.5) return true;
     const f = this.fwd;
@@ -201,6 +214,19 @@ class Renderer {
       this.bind(c.mesh); gl.drawArrays(gl.TRIANGLES, 0, c.mesh.count);
       this.stats.chunks++;
     }
+  }
+  /* 擺動的部件：以 (mx,my,mz,yaw) 為整體座標，(lx,ly,lz) 為關節位置，rx/rz 為擺動角 */
+  drawPart(mesh, mx, my, mz, yaw, lx, ly, lz, rx, rz, o) {
+    const gl = this.gl, L = this.loc; o = o || {};
+    M4.part(this.mM, mx, my, mz, yaw, lx, ly, lz, rx || 0, rz || 0, 1);
+    gl.uniformMatrix4fv(L.uM, false, this.mM);
+    const t = o.tint || [1, 1, 1];
+    gl.uniform3f(L.uTint, t[0], t[1], t[2]); gl.uniform1f(L.uEmitAdd, o.emit || 0);
+    const al = o.alpha === undefined ? 1 : o.alpha;
+    if (al < 1) gl.enable(gl.BLEND); else gl.disable(gl.BLEND);
+    gl.uniform1f(L.uAlpha, al);
+    this.bind(mesh); gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
+    this.stats.dyn++;
   }
   drawDyn(mesh, x, y, z, yaw, sx, sy, sz, o) {
     const gl = this.gl, L = this.loc;
@@ -265,14 +291,71 @@ function buildModels(R) {
   });
   M.portalFrame = mk(a => { pushBox(a, -1.0, 0, -0.12, -0.8, 2.6, 0.12, [0.2, 0.2, 0.28], 0); pushBox(a, 0.8, 0, -0.12, 1.0, 2.6, 0.12, [0.2, 0.2, 0.28], 0); pushBox(a, -1.0, 2.6, -0.12, 1.0, 2.8, 0.12, [0.2, 0.2, 0.28], 0); });
   M.portalDisc = mk(a => { pushBox(a, -0.8, 0.05, -0.03, 0.8, 2.6, 0.03, [0.5, 0.35, 1.0], 1.0); });
-  M.monster = mk(a => {
-    const k = [0.06, 0.05, 0.07];
-    pushBox(a, -0.32, 0.9, -0.2, 0.32, 1.9, 0.2, k, 0);              // 軀幹
-    pushBox(a, -0.26, 1.9, -0.24, 0.26, 2.4, 0.24, [0.1, 0.09, 0.11], 0); // 頭
-    pushBox(a, -0.17, 2.1, -0.26, -0.07, 2.2, -0.24, [1, 0.15, 0.1], 1.4); pushBox(a, 0.07, 2.1, -0.26, 0.17, 2.2, -0.24, [1, 0.15, 0.1], 1.4); // 眼
-    pushBox(a, -0.62, 0.45, -0.12, -0.34, 1.85, 0.12, k, 0); pushBox(a, 0.34, 0.45, -0.12, 0.62, 1.85, 0.12, k, 0); // 長手臂
-    pushBox(a, -0.26, 0, -0.14, -0.04, 0.9, 0.14, k, 0); pushBox(a, 0.04, 0, -0.14, 0.26, 0.9, 0.14, k, 0);
-  });
+  // ===== 怪物：駝背、巨大、噁心（由約 150 個小方塊組成，分成可擺動的部件）=====
+  {
+    const fl = [0.36, 0.33, 0.30], dk = [0.2, 0.17, 0.16], red = [0.5, 0.07, 0.08], bone = [0.84, 0.8, 0.66], slime = [0.45, 0.95, 0.22], pale = [0.58, 0.5, 0.44];
+    const mon = {};
+    mon.body = mk(a => {
+      pushBox(a, -0.5, 0.85, -0.35, 0.5, 1.4, 0.4, dk, 0);                               // 骨盆
+      pushBox(a, -0.44, 0.92, -0.55, 0.44, 1.46, -0.33, pale, 0.14);                     // 腫脹蒼白的腹部
+      pushBox(a, -0.3, 1.06, -0.6, 0.3, 1.3, -0.54, [0.62, 0.16, 0.16], 0.32);            // 潰爛的腹口
+      pushBox(a, -0.12, 0.9, -0.62, 0.12, 1.08, -0.56, slime, 0.8);                      // 黏液囊
+      pushBox(a, -0.78, 1.4, -0.62, 0.78, 2.1, 0.36, fl, 0);                              // 寬厚的胸腔
+      pushBox(a, -0.62, 1.45, -0.68, 0.62, 2.02, -0.6, red, 0.1);                         // 剝開的肌肉
+      for (let i = 0; i < 5; i++) pushBox(a, -0.64, 1.5 + i * 0.11, -0.74, 0.64, 1.55 + i * 0.11, -0.66, bone, 0.06);   // 外露肋骨
+      for (const vx of [-0.45, -0.15, 0.2, 0.5]) pushBox(a, vx, 1.5, -0.7, vx + 0.025, 2.0, -0.66, [0.75, 0.1, 0.1], 0.45);   // 血管
+      pushBox(a, -0.46, 1.95, 0.0, 0.46, 2.52, 0.68, dk, 0);                              // 背上的駝峰
+      for (let i = 0; i < 6; i++) pushPyr(a, -0.34 + i * 0.136, 2.52, 0.3 + (i % 2) * 0.1, 0.13, 0.13, 0.38 + (i % 3) * 0.1, bone, 0);   // 脊刺
+      for (const sx of [-1, 1]) {
+        pushBox(a, sx * 0.72, 1.62, -0.22, sx * 1.02, 2.18, 0.22, [0.42, 0.36, 0.3], 0);  // 肩部腫瘤
+        pushBox(a, sx * 0.8, 2.14, -0.12, sx * 0.98, 2.34, 0.1, slime, 0.75);             // 發光膿包
+        pushBox(a, sx * 0.86, 1.7, -0.3, sx * 0.94, 1.9, -0.2, red, 0.3);                // 潰瘍
+      }
+      pushBox(a, -0.3, 0.55, -0.1, 0.3, 0.9, 0.3, dk, 0);                                 // 腰部
+    });
+    mon.head = mk(a => {      // 關節在頸部 (0,0,0)，頭向前（-Z）伸出
+      pushBox(a, -0.37, -0.05, -0.66, 0.37, 0.52, 0.12, [0.62, 0.6, 0.52], 0);          // 頭骨
+      pushBox(a, -0.4, 0.28, -0.72, 0.4, 0.4, -0.5, dk, 0);                               // 眉骨
+      for (const sx of [-1, 1]) pushBox(a, sx * 0.4, 0.04, -0.55, sx * 0.5, 0.3, -0.2, fl, 0);   // 臉頰腫塊
+      for (const sx of [-1, 1]) { pushBox(a, sx * 0.1, 0.3, -0.74, sx * 0.27, 0.46, -0.68, [1.0, 0.95, 0.15], 2.0); pushBox(a, sx * 0.14, 0.34, -0.752, sx * 0.2, 0.42, -0.738, [0.1, 0, 0], 0); }   // 大眼（黃綠發光，細瞳孔）
+      for (const [ex, ey] of [[0, 0.46], [-0.33, 0.14], [0.33, 0.14]]) pushBox(a, ex - 0.05, ey, -0.72, ex + 0.05, ey + 0.1, -0.68, [1.0, 0.4, 0.1], 1.8);   // 多餘的小眼
+      pushBox(a, -0.1, 0.1, -0.7, 0.1, 0.2, -0.66, [0.04, 0, 0], 0);                      // 鼻孔
+      for (let i = 0; i < 9; i++) pushPyrInv(a, -0.32 + i * 0.08, 0.0, -0.64, 0.07, 0.07, 0.17 + (i % 2) * 0.07, bone, 0.08);   // 上排尖牙
+      for (const sx of [-1, 1]) pushPyr(a, sx * 0.3, 0.52, -0.08, 0.14, 0.14, 0.55, bone, 0);   // 犄角
+      for (const sx of [-1, 1]) pushPyr(a, sx * 0.44, 0.1, -0.1, 0.1, 0.1, 0.3, dk, 0);
+    });
+    mon.jaw = mk(a => {       // 下顎，關節在 (0,0,0)
+      pushBox(a, -0.31, -0.2, -0.68, 0.31, -0.04, 0.0, [0.5, 0.46, 0.4], 0);
+      for (let i = 0; i < 8; i++) pushPyr(a, -0.27 + i * 0.077, -0.04, -0.64, 0.065, 0.065, 0.16 + (i % 2) * 0.07, bone, 0.08);   // 下排尖牙
+      pushBox(a, -0.08, -0.12, -0.7, 0.08, -0.06, -0.12, [0.7, 0.1, 0.15], 0.35);        // 舌頭
+      pushBox(a, -0.06, -0.5, -0.64, 0.06, -0.12, -0.56, [0.7, 0.1, 0.15], 0.35);         // 垂下的長舌
+    });
+    const arm = sx => mk(a => {   // 關節在肩膀 (0,0,0)，向下垂至接近地面
+      pushBox(a, -0.12, -0.88, -0.12, 0.12, 0.05, 0.12, fl, 0);                           // 上臂
+      pushBox(a, -0.15, -1.0, -0.15, 0.15, -0.82, 0.15, red, 0.12);                       // 肘部肉瘤
+      pushBox(a, -0.09, -1.66, -0.1, 0.09, -0.92, 0.1, dk, 0);                            // 前臂
+      pushBox(a, -0.15, -1.82, -0.17, 0.15, -1.62, 0.1, fl, 0);                           // 手掌
+      for (let i = 0; i < 4; i++) pushPyrInv(a, -0.11 + i * 0.073, -1.8, -0.06 + (i % 2) * 0.04, 0.06, 0.06, 0.34 + (i % 2) * 0.06, bone, 0.06);   // 爪
+      pushBox(a, sx * 0.1, -0.7, -0.08, sx * 0.13, -0.3, 0.08, red, 0.3);                  // 傷口
+    });
+    mon.armL = arm(-1); mon.armR = arm(1);
+    const leg = () => mk(a => {   // 關節在髖部 (0,0,0)
+      pushBox(a, -0.17, -0.62, -0.16, 0.17, 0.04, 0.16, fl, 0);
+      pushBox(a, -0.14, -0.72, -0.13, 0.14, -0.56, 0.22, dk, 0);
+      pushBox(a, -0.1, -0.96, 0.02, 0.1, -0.64, 0.22, dk, 0);
+      pushBox(a, -0.15, -0.96, -0.4, 0.15, -0.86, 0.16, fl, 0);
+      for (let i = 0; i < 3; i++) pushPyr(a, -0.09 + i * 0.09, -0.96, -0.46, 0.07, 0.12, 0.1, bone, 0);
+    });
+    mon.legL = leg(); mon.legR = leg();
+    mon.tend = [0, 1, 2, 3].map(k => mk(a => {   // 背上的觸手，向上延伸
+      let y = 0, w = 0.1;
+      for (let i = 0; i < 6; i++) { pushBox(a, -w / 2, y, -w / 2, w / 2, y + 0.3, w / 2, i % 2 ? red : dk, 0.1 + i * 0.04); y += 0.28; w *= 0.84; }
+      pushBox(a, -0.05, y, -0.05, 0.05, y + 0.1, 0.05, slime, 1.2);
+    }));
+    mon.drip = mk(a => pushBox(a, -0.025, -0.1, -0.025, 0.025, 0.04, 0.025, slime, 1.3));
+    mon.blob = mk(a => pushBox(a, -1.0, 0, -1.0, 1.0, 0.012, 1.0, [0.02, 0.02, 0.02], 0));
+    M.mon = mon;
+  }
   M.pBody = mk(a => { pushBox(a, -0.26, 0.8, -0.15, 0.26, 1.4, 0.15, W, 0.05); pushBox(a, -0.42, 0.85, -0.1, -0.26, 1.4, 0.1, W, 0.05); pushBox(a, 0.26, 0.85, -0.1, 0.42, 1.4, 0.1, W, 0.05); });
   M.pHead = mk(a => { pushBox(a, -0.18, 1.4, -0.18, 0.18, 1.76, 0.18, [0.86, 0.7, 0.58], 0.05); pushBox(a, -0.19, 1.62, -0.19, 0.19, 1.78, 0.19, [0.15, 0.1, 0.08], 0.0); });
   M.pLegs = mk(a => { pushBox(a, -0.22, 0, -0.1, -0.02, 0.8, 0.1, [0.15, 0.17, 0.25], 0); pushBox(a, 0.02, 0, -0.1, 0.22, 0.8, 0.1, [0.15, 0.17, 0.25], 0); });

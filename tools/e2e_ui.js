@@ -100,7 +100,7 @@ const file = 'file://' + path.resolve(__dirname, '..', 'index.html');
   await page.keyboard.down('ControlLeft'); await page.waitForTimeout(250);
   ok(await page.evaluate(() => window.__HC.G.me.crouch), 'Ctrl 蹲下'); await page.keyboard.up('ControlLeft'); await page.waitForTimeout(250);
   ok(await page.evaluate(() => !window.__HC.G.me.crouch), '放開 Ctrl 起身');
-  await page.evaluate(() => { const m = window.__HC.G.me; m.x = 0; m.z = 44; m.y = 0; });
+  await page.evaluate(() => { const m = window.__HC.G.me; m.x = 0; m.z = 28; m.y = 0; });
   await page.waitForTimeout(200);
   await page.keyboard.down('Space'); await page.waitForTimeout(250);
   const jy = await page.evaluate(() => window.__HC.G.me.y); await page.keyboard.up('Space');

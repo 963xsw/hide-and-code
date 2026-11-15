@@ -7,7 +7,7 @@ const COLORS = [
   { id: 3, name: '黃', hex: '#f2c744', rgb: [0.95, 0.78, 0.27] },
 ];
 const SPEED = { walk: 3.6, run: 6.0, crouch: 1.8 };
-const MON = { patrol: 1.7, invest: 3.0, chase: 5.4, view: 20, fov: 0.42, seeNeeded: 2.0, giveUp: 4.0, catchR: 1.15 };
+const MON = { patrol: 1.7, invest: 3.0, chase: 5.4, view: 20, fov: 0.42, seeNeeded: 2.0, giveUp: 4.0, catchR: 1.35, lureTime: 8.0, lureMax: 12.5 };
 const ROUND_TIME = 1200;
 const F_CROUCH = 1, F_HIDDEN = 2, F_RUN = 4, F_MOVE = 8, F_GROUND = 16;
 
@@ -99,9 +99,9 @@ class Sim {
       }
       return out;
     };
-    const locks = pickSpaced('lock', 4, 14);
-    const peds = pickSpaced('ped', 4, 14, locks.map(i => b.spots.lock[i]));
-    const codes = pickSpaced('code', 4, 10);
+    const locks = pickSpaced('lock', 4, 11);
+    const peds = pickSpaced('ped', 4, 11, locks.map(i => b.spots.lock[i]));
+    const codes = pickSpaced('code', 4, 7);
     this.locks = locks.map((spot, c) => ({ spot, open: false, by: null }));
     this.peds = peds.map(spot => ({ spot }));
     this.codes = codes.map(spot => ({ spot, value: this.newCode() }));
@@ -147,7 +147,7 @@ class Sim {
           this.emit('all', { t: 'unlocked', c: m.c, by: pid, name: p.name });
         } else {
           this.emit(pid, { t: 'wrong', c: m.c });
-          this.noise(s.x, s.y, s.z, 32, true);
+          this.lure(s, m.c);
         }
         break;
       }
@@ -188,13 +188,45 @@ class Sim {
     }
   }
   chat(p, s) { s = String(s || '').slice(0, 60); if (s) this.emit('all', { t: 'chat', n: p.name, s }); }
+  /* ---------- 輸錯密碼：怪物一定會在約 10 秒內趕到那個鎖 ---------- */
+  lure(s, color) {
+    const m = this.mon, nav = this.nav;
+    if (m.st === 'chase') return false;          // 已經在追人時，不會被引開（專心追眼前的人）
+    const target = nav.nearest(s.x, s.y, s.z, 6);
+    const a = nav.nearest(m.x, m.y, m.z, 4);
+    if (target < 0 || a < 0) return false;
+    let path = nav.path(a, target, 120000);
+    if (!path) return false;
+    const plen = pth => { let L = 0; for (let i = 1; i < pth.length; i++) L += Math.hypot(nav.nx[pth[i]] - nav.nx[pth[i - 1]], nav.ny[pth[i]] - nav.ny[pth[i - 1]], nav.nz[pth[i]] - nav.nz[pth[i - 1]]); return L; };
+    let L = plen(path), speed = Math.max(MON.invest, L / MON.lureTime), tele = false; const L0 = L;
+    if (speed > MON.lureMax) {
+      // 太遠：若沒有任何玩家看得到／在附近，就把怪物往前「挪」到趕得上的位置（看不見才挪）
+      const keep = MON.lureMax * MON.lureTime;
+      let acc = 0, k = path.length - 1;
+      while (k > 0 && acc < keep) { const n0 = path[k], n1 = path[k - 1]; acc += Math.hypot(nav.nx[n0] - nav.nx[n1], nav.ny[n0] - nav.ny[n1], nav.nz[n0] - nav.nz[n1]); k--; }
+      const near = (x, y, z) => [...this.players.values()].some(p => p.st === 'alive' && (Math.hypot(p.x - x, p.y - y, p.z - z) < 6 || (Math.hypot(p.x - x, p.z - z) < 45 && this.world.los(p.x, p.y + 1.5, p.z, x, y + 1.6, z))));
+      if (k > 0 && !near(m.x, m.y, m.z)) {
+        // 從「剛好趕得上」的位置開始，往鎖的方向找第一個沒人看得到的落點
+        while (k < path.length - 1 && near(nav.nx[path[k]], nav.ny[path[k]], nav.nz[path[k]])) k++;
+      } else k = 0;
+      if (k > 0 && !near(nav.nx[path[k]], nav.ny[path[k]], nav.nz[path[k]])) {
+        m.x = nav.nx[path[k]]; m.y = nav.ny[path[k]]; m.z = nav.nz[path[k]]; m.node = path[k];
+        path = path.slice(k); L = plen(path); speed = Math.max(MON.invest, L / MON.lureTime); tele = true;
+      }
+      speed = Math.min(speed, MON.lureMax);
+    }
+    m.st = 'investigate'; m.inv = { x: s.x, y: s.y, z: s.z }; m.path = path; m.pi = path.length > 1 ? 1 : 0;
+    m.idle = 0; m.cool = 0; m.rushSpeed = speed; m.target = null; this.lastLure = { L0: Math.round(L0), L: Math.round(L), speed: Math.round(speed * 10) / 10, tele };
+    this.emit('all', { t: 'lure', c: color, x: s.x, y: s.y, z: s.z, eta: Math.round(L / speed * 10) / 10 });
+    return true;
+  }
   /* ---------- 噪音 ---------- */
   noise(x, y, z, r, strong) {
     const m = this.mon;
     if (m.st === 'chase' || m.cool > 0) return;
     if (Math.hypot(m.x - x, m.z - z) > r || Math.abs(m.y - y) > 7) return;
     if (m.st === 'investigate' && !strong) return;
-    m.st = 'investigate'; m.inv = { x, y, z }; m.path = null; m.idle = 0;
+    m.st = 'investigate'; m.inv = { x, y, z }; m.path = null; m.idle = 0; m.rushSpeed = 0;
     const n = this.nav.nearest(x, y, z, 4);
     if (n >= 0) this.monPathTo(n); else m.st = 'patrol';
   }
@@ -210,7 +242,7 @@ class Sim {
   }
   monGiveUp() {
     const m = this.mon;
-    m.st = 'patrol'; m.target = null; m.path = null; m.lost = 0; m.cool = 1.2;
+    m.st = 'patrol'; m.target = null; m.path = null; m.lost = 0; m.cool = 1.2; m.rushSpeed = 0;
     // 回到最近的巡邏點
     let bi = 0, bd = 1e9; const nav = this.nav;
     this.bundle.route.forEach((n, i) => { const d = (nav.nx[n] - m.x) ** 2 + (nav.nz[n] - m.z) ** 2 + ((nav.ny[n] - m.y) * 4) ** 2; if (d < bd) { bd = d; bi = i; } });
@@ -261,7 +293,7 @@ class Sim {
     if (m.st !== 'chase' && m.cool <= 0) {
       for (const p of this.players.values()) {
         if (p.seen >= MON.seeNeeded && this.monSee(p) && p.prot <= 0) {
-          m.st = 'chase'; m.target = p.id; m.lost = 0; m.repath = 0; m.path = null;
+          m.st = 'chase'; m.target = p.id; m.lost = 0; m.repath = 0; m.path = null; m.rushSpeed = 0;
           this.emit(p.id, { t: 'alert' });
           break;
         }
@@ -292,7 +324,7 @@ class Sim {
         }
       }
     } else if (m.st === 'investigate') {
-      const done = this.monMove(dt, MON.invest);
+      const done = this.monMove(dt, m.rushSpeed || MON.invest);
       if (done || !m.path) {
         m.idle += dt;
         if (m.idle > 2.2) this.monGiveUp();

@@ -164,6 +164,7 @@ function drawMinimap() {
   x.globalAlpha = 0.9; x.drawImage(G.miniImg, 0, 0); x.globalAlpha = 1;
   const dot = (px, pz, col, r) => { x.fillStyle = col; x.beginPath(); x.arc((px - bd.x0) * 2, (pz - bd.z0) * 2, r, 0, TAU); x.fill(); };
   G.others.forEach(o => { if (o.st === 0 && o.init && !(o.flags & F_HIDDEN)) dot(o.x, o.z, '#46c37b', 5); });
+  if (G.lurePing) { const lp = G.lurePing, ph = (performance.now() % 900) / 900; x.strokeStyle = `rgba(255,170,40,${(1 - ph).toFixed(2)})`; x.lineWidth = 3; x.beginPath(); x.arc((lp.x - bd.x0) * 2, (lp.z - bd.z0) * 2, 6 + ph * 22, 0, TAU); x.stroke(); dot(lp.x, lp.z, '#ffaa28', 5); }
   const mo = G.mon; if (mo.init) { dot(mo.x, mo.z, '#ff3b3b', 8); x.strokeStyle = 'rgba(255,60,60,.5)'; x.lineWidth = 2; x.beginPath(); x.arc((mo.x - bd.x0) * 2, (mo.z - bd.z0) * 2, 14 + (performance.now() % 1000) / 1000 * 10, 0, TAU); x.stroke(); }
   x.restore();
   x.fillStyle = '#fff'; x.beginPath(); x.moveTo(w / 2, h / 2 - 11); x.lineTo(w / 2 + 7, h / 2 + 8); x.lineTo(w / 2 - 7, h / 2 + 8); x.closePath(); x.fill();
@@ -262,8 +263,7 @@ function renderFrame(dt) {
     });
   });
   // 怪物
-  const mo = G.mon;
-  if (mo.init) R.drawDyn(MODELS.monster, mo.x, mo.y, mo.z, mo.yaw, 1, 1, 1, { emit: mo.st === 2 ? 0.25 : 0 });
+  drawMonster(t);
   // 其他玩家
   G.others.forEach(o => {
     if (o.st !== 0 || !o.init || (o.flags & F_HIDDEN)) return;
@@ -273,6 +273,36 @@ function renderFrame(dt) {
     R.drawDyn(MODELS.pLegs, o.x, o.y, o.z, o.yaw, 1, cr, 1);
   });
   updateTags();
+}
+
+/* 怪物：駝背巨獸，由多個可擺動的部件組成（肢體隨腳步擺動、下顎開合、觸手搖曳、黏液滴落） */
+function drawMonster(t) {
+  const mo = G.mon, M = MODELS.mon; if (!mo.init) return;
+  const x = mo.x, z = mo.z, yw = mo.yaw, ph = mo.phase || 0, chase = mo.st === 2;
+  if (!R.visible(x, mo.y + 1.2, z, 3.2)) return;
+  const bob = Math.sin(ph * 2) * 0.05 + Math.sin(t * 1.7) * 0.02, y0 = mo.y + bob;
+  const cy = Math.cos(yw), sy = Math.sin(yw);
+  const W = (lx, ly, lz) => [x + cy * lx + sy * lz, y0 + ly, z - sy * lx + cy * lz];
+  R.drawDyn(M.blob, x, mo.y + 0.02, z, yw, 1, 1, 1, { alpha: 0.5 });
+  R.drawDyn(M.body, x, y0, z, yw, 1, 1, 1, { emit: chase ? 0.18 : 0.04 + 0.03 * Math.sin(t * 3) });
+  const twitch = chase ? Math.sin(t * 13) * 0.12 : Math.sin(t * 2.3) * 0.05;
+  const headRx = (chase ? 0.28 : 0.12) + Math.sin(ph * 2) * 0.04;
+  const open = chase ? 0.55 + 0.18 * Math.sin(t * 11) : 0.18 + 0.12 * Math.sin(t * 2.1);
+  R.drawPart(M.head, x, y0, z, yw, 0, 1.95, -0.55, headRx, twitch, { emit: 0.12 + (chase ? 0.25 : 0) });
+  R.drawPart(M.jaw, x, y0, z, yw, 0, 1.95, -0.55, headRx - open, twitch);
+  const swL = chase ? 1.0 + Math.sin(t * 8) * 0.35 : Math.sin(ph) * 0.45, swR = chase ? 1.0 + Math.sin(t * 8 + 2) * 0.35 : -Math.sin(ph) * 0.45;
+  R.drawPart(M.armL, x, y0, z, yw, -0.95, 2.0, -0.1, swL, -0.1);
+  R.drawPart(M.armR, x, y0, z, yw, 0.95, 2.0, -0.1, swR, 0.1);
+  const lg = Math.sin(ph) * 0.7;
+  R.drawPart(M.legL, x, y0, z, yw, -0.32, 0.95, 0.05, lg, 0);
+  R.drawPart(M.legR, x, y0, z, yw, 0.32, 0.95, 0.05, -lg, 0);
+  const tp = [[-0.28, 2.3, 0.45], [0.28, 2.3, 0.45], [-0.12, 2.5, 0.5], [0.12, 2.5, 0.5]];
+  for (let k = 0; k < 4; k++) R.drawPart(M.tend[k], x, y0, z, yw, tp[k][0], tp[k][1], tp[k][2], 0.9 + k * 0.1 + Math.sin(t * 2.2 + k) * 0.35, (k % 2 ? 0.3 : -0.3) + Math.sin(t * 1.7 + k * 2) * 0.25, { emit: 0.05 });
+  for (let k = 0; k < 3; k++) {
+    const f = (t * 1.1 + k * 0.37) % 1, src = k === 2 ? [0.3, 1.0, -0.62] : [(k - 0.5) * 0.12, 1.75, -1.15];
+    const w = W(src[0], src[1] - f * (k === 2 ? 1.0 : 1.7), src[2]);
+    R.drawDyn(M.drip, w[0], w[1], w[2], yw, 1, 1, 1, { maxDist: 24 });
+  }
 }
 
 function hudFrame(dt) {
@@ -474,7 +504,18 @@ function frame(now) {
     const eyeT = G.me.crouch ? 1.0 : 1.55; G.eyeY += (eyeT - G.eyeY) * Math.min(1, 10 * dt);
     const k = Math.min(1, 14 * dt);
     G.others.forEach(o => { if (!o.init) return; o.x += (o.tx - o.x) * k; o.y += (o.ty - o.y) * k; o.z += (o.tz - o.z) * k; o.yaw += angDiff(o.yaw, o.tyaw) * k; o.pitch += (o.tpitch - o.pitch) * k; });
-    const mo = G.mon; if (mo.init) { mo.x += (mo.tx - mo.x) * k; mo.y += (mo.ty - mo.y) * k; mo.z += (mo.tz - mo.z) * k; mo.yaw += angDiff(mo.yaw, mo.tyaw) * k; }
+    const mo = G.mon;
+    if (mo.init) {
+      const ox = mo.x, oz = mo.z;
+      mo.x += (mo.tx - mo.x) * k; mo.y += (mo.ty - mo.y) * k; mo.z += (mo.tz - mo.z) * k; mo.yaw += angDiff(mo.yaw, mo.tyaw) * k;
+      const moved = Math.hypot(mo.x - ox, mo.z - oz);
+      const sp0 = Math.floor((mo.phase || 0) / Math.PI);
+      mo.phase = (mo.phase || 0) + Math.min(moved, 1.0) * 2.0;
+      const dM = G.me ? Math.hypot(mo.x - G.me.x, mo.z - G.me.z) : 99;
+      if (Math.floor(mo.phase / Math.PI) !== sp0 && dM < 30) Sfx.stomp(clamp(1.1 - dM / 30, 0.1, 1) * (mo.st === 2 ? 1 : 0.7));
+      if (mo.st !== mo.prevSt) { if (mo.st === 2 && dM < 45) Sfx.growl(clamp(1.1 - dM / 45, 0.2, 1)); mo.prevSt = mo.st; }
+    }
+    if (G.lurePing) { G.lurePing.t -= dt; if (G.lurePing.t <= 0) G.lurePing = null; }
     computeInteract();
     if (G.cine) G.cine.t += dt;
   } else if (G.mode === 'result' && G.cine) G.cine.t += dt;

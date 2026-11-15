@@ -75,6 +75,16 @@ const M4 = {
     return out;
   },
 };
+/* 部件變換：T(m) * Ry(yaw) * T(l) * Rz(rz) * Rx(rx) * S(s)（用於會擺動的肢體） */
+M4.part = function (out, mx, my, mz, yaw, lx, ly, lz, rx, rz, s) {
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cx = Math.cos(rx), sx = Math.sin(rx), cz = Math.cos(rz), sz = Math.sin(rz);
+  const mul3 = (A, B) => { const C = new Array(9); for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) C[c * 3 + r] = A[r] * B[c * 3] + A[3 + r] * B[c * 3 + 1] + A[6 + r] * B[c * 3 + 2]; return C; };
+  const Ry = [cy, 0, -sy, 0, 1, 0, sy, 0, cy], Rz = [cz, sz, 0, -sz, cz, 0, 0, 0, 1], Rx = [1, 0, 0, 0, cx, sx, 0, -sx, cx];
+  const R = mul3(Ry, mul3(Rz, Rx));
+  for (let c = 0; c < 3; c++) { out[c * 4] = R[c * 3] * s; out[c * 4 + 1] = R[c * 3 + 1] * s; out[c * 4 + 2] = R[c * 3 + 2] * s; out[c * 4 + 3] = 0; }
+  out[12] = mx + cy * lx + sy * lz; out[13] = my + ly; out[14] = mz - sy * lx + cy * lz; out[15] = 1;
+  return out;
+};
 /* 視線方向：yaw=0 面向 -Z；yaw 增加向左轉 */
 function fwdVec(yaw, pitch) {
   const cp = Math.cos(pitch);

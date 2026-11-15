@@ -10,10 +10,11 @@ class Builder {
     this.spots = { code: [], lock: [], ped: [], frog: [], hide: [], spawn: [], patrol: [] };
     this.portals = [];
     this.theme = {};
+    this.jit = 0;         // 顏色微幅隨機（僅植物／石頭／家具使用）；結構類一律 0，避免共平面重疊時閃爍
   }
   box(x0, y0, z0, x1, y1, z1, col, solid = true, emit = 0) {
     const c = hexRgb(col);
-    const j = 1 + (this.rng() - 0.5) * 0.10;
+    const j = this.jit > 0 ? 1 + (this.rng() - 0.5) * this.jit : 1;
     this.boxes.push({
       x0: Math.min(x0, x1), y0: Math.min(y0, y1), z0: Math.min(z0, z1),
       x1: Math.max(x0, x1), y1: Math.max(y0, y1), z1: Math.max(z0, z1),
@@ -29,11 +30,15 @@ class Builder {
   }
   pyr(cx, y0, cz, w, d, h, col, emit = 0) {
     const c = hexRgb(col);
-    const j = 1 + (this.rng() - 0.5) * 0.12;
+    const j = this.jit > 0 ? 1 + (this.rng() - 0.5) * 0.12 : 1;
     this.pyrs.push({ cx, y0, cz, w, d, h, col: [c[0] * j, c[1] * j, c[2] * j], emit });
   }
   /* 沿軸向的牆（含門／窗開口）。gaps: {a,b,y0,y1} 皆為相對牆底的高度與沿牆座標 */
   wall(x0, z0, x1, z1, yb, yt, th, col, gaps, frame) {
+    const sj = this.jit; this.jit = 0;
+    try { this.wall_(x0, z0, x1, z1, yb, yt, th, col, gaps, frame); } finally { this.jit = sj; }
+  }
+  wall_(x0, z0, x1, z1, yb, yt, th, col, gaps, frame) {
     const alongX = Math.abs(z1 - z0) < 1e-6;
     const a0 = alongX ? Math.min(x0, x1) : Math.min(z0, z1);
     const a1 = alongX ? Math.max(x0, x1) : Math.max(z0, z1);
@@ -64,9 +69,10 @@ class Builder {
           if (alongX) this.box(sa, ya, fixed - th / 2 - E - e0, ea, yb2, fixed + th / 2 + E + e0, frame, false);
           else this.box(fixed - th / 2 - E - e0, ya, sa, fixed + th / 2 + E + e0, yb2, ea, frame, false);
         };
-        fb(ga - P, ga, gy0, gy1); fb(gb, gb + P, gy0, gy1);
-        fb(ga - P, gb + P, gy1, gy1 + 0.09);
-        if ((g.y0 || 0) > 0) fb(ga - P, gb + P, gy0 - 0.06, gy0, 0.06);
+        const I = 0.012;   // 向開口內縮 1.2 公分，避免與牆的開口邊共平面而閃爍
+        fb(ga - P, ga + I, gy0, gy1); fb(gb - I, gb + P, gy0, gy1);
+        fb(ga - P, gb + P, gy1 - I, gy1 + 0.09);
+        if ((g.y0 || 0) > 0) fb(ga - P, gb + P, gy0 - 0.06, gy0 + I, 0.06);
       }
     }
   }

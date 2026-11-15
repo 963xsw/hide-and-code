@@ -47,7 +47,7 @@ const G = {
   room: { code: '', map: 0, players: [] },
   mapIdx: 0, bundle: null, chunks: null, chunksIdx: -1, miniImg: null,
   me: null, others: new Map(), mon: { x: 0, y: 0, z: 0, yaw: 0, tx: 0, ty: 0, tz: 0, tyaw: 0, st: 0, target: '' },
-  codes: [], locks: [], peds: [], frog: { spot: 0, found: false }, notes: {},
+  codes: [], locks: [], peds: [], frog: { spot: 0, found: false }, notes: {}, lurePing: null,
   tm: ROUND_TIME, countdown: 0, simDelay: 0, menuOpen: false, keypad: null, chatOpen: false,
   sendT: 0, snapT: 0, inter: null, flash: true, locked: false, cine: null, ended: false, alertT: 0,
   eyeY: 1.55, bob: 0, stepD: 0, wasGround: true, lastHP: 3, portalCd: 0, results: null, roundStats: { hides: 0 }, hbOn: false,
@@ -247,6 +247,13 @@ function clientHandle(m) {
     case 'lockmsg': toast(m.s); break;
     case 'placed': Sfx.place(); break;
     case 'alert': Sfx.alert(); G.alertT = 1.5; break;
+    case 'lure': {
+      G.lurePing = { x: m.x, z: m.z, t: 12 };
+      const mo = G.mon, d = mo.init ? Math.hypot(mo.x - G.me.x, mo.z - G.me.z) : 40;
+      Sfx.growl(clamp(1.1 - d / 55, 0.2, 1));
+      toast(`⚠ ${COLORS[m.c].name}色鎖的錯誤聲響引來了怪物！約 ${Math.round(m.eta)} 秒後抵達（小地圖橘圈）`, 5000);
+      break;
+    }
     case 'caught': onCaught(m); break;
     case 'reset': {
       applyWorld(m.world);

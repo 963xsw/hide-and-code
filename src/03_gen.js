@@ -3,6 +3,10 @@
 const H_FLOOR = 3.2, SLAB = 0.3, WT = 0.3, DOORW = 1.8, STAIR_W = 2.6, STAIR_N = 10;
 
 function slabHole(b, x0, z0, x1, z1, y0, y1, col, hole) {
+  const sj = b.jit; b.jit = 0;
+  try { slabHole_(b, x0, z0, x1, z1, y0, y1, col, hole); } finally { b.jit = sj; }
+}
+function slabHole_(b, x0, z0, x1, z1, y0, y1, col, hole) {
   if (!hole) { b.box(x0, y0, z0, x1, y1, z1, col); return; }
   const { hx0, hx1, hz0, hz1 } = hole;
   b.box(x0, y0, z0, hx0, y1, z1, col);
@@ -24,6 +28,10 @@ function flightInfo(o, k) {
 }
 
 function addStairs(b, o, k, col) {
+  const sj = b.jit; b.jit = 0;
+  try { return addStairs_(b, o, k, col); } finally { b.jit = sj; }
+}
+function addStairs_(b, o, k, col) {
   const f = flightInfo(o, k), yb = k * H_FLOOR, rise = H_FLOOR / STAIR_N;
   for (let i = 0; i < STAIR_N; i++) {
     const top = yb + (i + 1) * rise;
@@ -68,7 +76,7 @@ function mkBed(b, x, y, z, iz, P) {
   for (const sx of [-0.48, 0.48]) for (const sz of [-0.94, 0.94]) b.boxC(x + sx, y, zc + sz, 0.09, 0.22, 0.09, P.dark, false);
   b.boxC(x, y + 0.2, zc, 1.04, 0.14, 2.0, P.wood, false);
   b.boxC(x, y + 0.34, zc, 0.94, 0.2, 1.9, P.mattress, false);
-  b.boxC(x, y + 0.44, zc + iz * 0.42, 0.98, 0.1, 1.15, P.cloth, false, 0.04);
+  b.boxC(x, y + 0.44, zc + iz * 0.4, 0.99, 0.12, 1.1, P.cloth, false, 0.04);
   b.boxC(x, y + 0.54, z + iz * 0.3, 0.62, 0.11, 0.34, P.pillow, false);
   b.boxC(x, y + 0.1, z + iz * 0.05, 1.1, 1.0, 0.08, P.wood, false);
   b.boxC(x, y + 0.1, z + iz * 1.96, 1.1, 0.5, 0.07, P.wood, false);
@@ -77,8 +85,8 @@ function mkCrate(b, x, y, z, P) {
   b.boxC(x, y, z, 0.95, 0.95, 0.95, P.crate);
   b.boxC(x, y + 0.93, z, 1.02, 0.06, 1.02, P.dark, false);
   for (const sx of [-0.46, 0.46]) for (const sz of [-0.46, 0.46]) b.boxC(x + sx, y, z + sz, 0.07, 0.95, 0.07, P.dark, false);
-  b.boxC(x, y + 0.3, z, 0.99, 0.05, 0.99, P.dark, false);
-  b.boxC(x, y + 0.64, z, 0.99, 0.05, 0.99, P.dark, false);
+  b.boxC(x, y + 0.3, z, 1.01, 0.05, 1.01, P.dark, false);
+  b.boxC(x, y + 0.64, z, 1.01, 0.05, 1.01, P.dark, false);
 }
 function mkShelf(b, x, y, z, iz, P) {
   b.boxC(x, y, z + iz * 0.25, 1.4, 1.9, 0.4, P.wood);
@@ -108,11 +116,15 @@ function mkDumpster(b, x, z) {
   b.boxC(x + 0.5, 1.36, z, 0.98, 0.08, 1.12, '#1e3e28', false);
   for (const xs of [-0.65, 0, 0.65]) for (const zs of [-0.52, 0.52]) b.boxC(x + xs, 0.24, z + zs, 0.1, 0.95, 0.04, '#244a30', false);
   for (const xs of [-0.8, 0.8]) for (const zs of [-0.4, 0.4]) b.boxC(x + xs, 0, z + zs, 0.16, 0.22, 0.16, '#101214', false);
-  b.boxC(x, 0.7, z + 0.53, 0.7, 0.16, 0.02, '#8a8a7c', false);
+  b.boxC(x, 0.7, z + 0.545, 0.7, 0.16, 0.02, '#8a8a7c', false);
   b.boxC(x, 1.0, z - 0.58, 1.5, 0.05, 0.05, '#111', false);
   addHide(b, 'dumpster', x, 0, z, x, z + 1.6, 0);
 }
 function mkHay(b, x, z) {
+  const sj = b.jit; b.jit = 0.08;
+  try { mkHay_(b, x, z); } finally { b.jit = sj; }
+}
+function mkHay_(b, x, z) {
   b.colBox(x - 0.9, 0, z - 0.7, x + 0.9, 1.4, z + 0.7);
   b.boxC(x, 0, z, 1.8, 0.7, 1.4, '#b49a45', false, 0.10);
   b.boxC(x - 0.1, 0.7, z, 1.4, 0.7, 1.2, '#a98e3a', false, 0.10);
@@ -146,10 +158,29 @@ function mkTank(b, x, y, z) {
 }
 
 function furnishRoom(b, R, yb, pal, opt) {
+  const sj = b.jit; b.jit = 0.08;
+  try { furnishRoom_(b, R, yb, pal, opt); } finally { b.jit = sj; }
+}
+function furnishRoom_(b, R, yb, pal, opt) {
   // R: {ax0,ax1, backZ, backIn, frontZ, frontIn, doorX}
   const rng = b.rng;
   const P = Object.assign({ dark: '#2e2016', door: '#6e4d32', door2: '#7d5a3c', brass: '#c9a14a', mattress: '#cfc8b8', pillow: '#e8e0d0' }, pal);
   const cxm = (R.ax0 + R.ax1) / 2, czm = (R.backZ + R.frontZ) / 2;
+  {
+    // 木地板縫線與踢腳板（讓地板不再是一整片平面）
+    const sj2 = b.jit; b.jit = 0;      // 地板細節不抖色，避免重疊處閃爍
+    const fl = yb === 0 ? 0.04 : yb, zA = Math.min(R.backZ, R.frontZ), zB = Math.max(R.backZ, R.frontZ);
+    const seam = P.seam || '#241a12', base = P.base || '#1f1812';
+    for (let px = R.ax0 + 0.55; px < R.ax1 - 0.3; px += 0.8) b.box(px - 0.014, fl + 0.006, zA, px + 0.014, fl + 0.011, zB, seam, false);
+    const bh = 0.14, bt = 0.04;
+    b.box(R.ax0, fl, R.backZ, R.ax1, fl + bh, R.backZ + R.backIn * bt, base, false);                       // 後牆
+    b.box(R.ax0, fl, zA, R.ax0 + bt, fl + bh, zB, base, false);                                              // 左牆
+    b.box(R.ax1 - bt, fl, zA, R.ax1, fl + bh, zB, base, false);                                              // 右牆
+    const dx0 = R.doorX - 0.95, dx1 = R.doorX + 0.95;                                                         // 走廊側牆（門口留空）
+    b.box(R.ax0, fl, R.frontZ, dx0, fl + bh, R.frontZ + R.frontIn * bt, base, false);
+    b.box(dx1, fl, R.frontZ, R.ax1, fl + bh, R.frontZ + R.frontIn * bt, base, false);
+    b.jit = sj2;
+  }
   // 地毯
   {
     const rw = Math.min(3.4, R.ax1 - R.ax0 - 2.8), rd = Math.min(2.4, Math.abs(R.frontZ - R.backZ) - 2.6);
@@ -214,6 +245,10 @@ function furnishRoom(b, R, yb, pal, opt) {
 
 /* ---------- 多層建築 ---------- */
 function building(b, o) {
+  const sj = b.jit; b.jit = 0;
+  try { building_(b, o); } finally { b.jit = sj; }
+}
+function building_(b, o) {
   o = Object.assign({ floors: 3, hallW: 10, rooms: 3, roof: 'pitched', windows: true, extraDoors: [], hideProb: 0.5 }, o);
   const { x0, z0, x1, z1, floors } = o;
   const H = H_FLOOR, cz = (z0 + z1) / 2;
@@ -290,7 +325,19 @@ function building(b, o) {
         b.boxC(px, yb + 1.85, zc0 + 0.2, 0.2, 0.3, 0.1, '#ffcf7a', false, 0.7);
         b.boxC(px, yb + 1.85, zc1 - 0.2, 0.2, 0.3, 0.1, '#ffcf7a', false, 0.7);
       }
+      {   // 走廊長地毯
+        const ry = (yb === 0 ? 0.04 : yb) + 0.01, len = (x1 - rx0) - 3.2;
+        b.boxC(rx0 + (x1 - rx0) / 2 + 0.4, ry, cz, len, 0.012, 1.5, '#4a2626', false);
+        b.boxC(rx0 + (x1 - rx0) / 2 + 0.4, ry + 0.012, cz, len - 0.3, 0.01, 1.14, '#7a6a44', false);
+        b.boxC(rx0 + (x1 - rx0) / 2 + 0.4, ry + 0.022, cz, len - 0.6, 0.01, 0.9, '#4a2626', false);
+      }
       b.spots.patrol.push([rx0 + (x1 - rx0) / 2, yb, cz]);
+    }
+    {   // 大廳地毯（夾在兩段樓梯開口之間）
+      const ry = (yb === 0 ? 0.04 : yb) + 0.01, hc = x0 + o.hallW / 2;
+      b.boxC(hc, ry, cz, 3.4, 0.012, 2.3, '#3a2a4a', false);
+      b.boxC(hc, ry + 0.012, cz, 3.0, 0.01, 1.9, '#8a7a4a', false);
+      b.boxC(hc, ry + 0.022, cz, 2.5, 0.01, 1.5, '#3a2a4a', false);
     }
     // 大廳的點
     b.spots.patrol.push([x0 + o.hallW / 2, yb, cz]);
@@ -326,6 +373,10 @@ function building(b, o) {
 
 /* ---------- 迷宮（樹籬／地牢） ---------- */
 function mazeGen(b, o) {
+  const sj = b.jit; b.jit = 0;
+  try { return mazeGen_(b, o); } finally { b.jit = sj; }
+}
+function mazeGen_(b, o) {
   const { ox, oz, cols, rows, cell, th, h, col } = o;
   const rng = b.rng;
   const right = [], down = [];
@@ -381,13 +432,35 @@ function mazeGen(b, o) {
 }
 
 /* ---------- 戶外 ---------- */
-function groundTiles(b, colFn, tile = 10) {
-  const bd = b.bounds;
+function groundTiles(b, colFn, tile = 6) {
+  const bd = b.bounds, sj = b.jit; b.jit = 0.06;
   for (let x = bd.x0; x < bd.x1; x += tile) for (let z = bd.z0; z < bd.z1; z += tile) {
     b.box(x, -0.4, z, x + tile, 0, z + tile, colFn(x + tile / 2, z + tile / 2), false);
   }
+  b.jit = sj;
+}
+/* 地面細節：不重疊的薄片土塊／草簇／碎石（全是靜態方塊，依區塊剔除） */
+function groundDetail(b, o) {
+  const sj = b.jit; b.jit = 0.1;
+  const layers = [0.008, 0.014, 0.02], av = o.avoid || [];
+  scatter(b, o.patches || 0, b.bounds, 3.2, av, (x, z, i) => {
+    const w = 1.2 + b.rng() * 1.0, d = 1.0 + b.rng() * 1.0;
+    b.boxC(x, layers[i % 3], z, w, 0.004, d, rpick(b.rng, o.cols), false);
+  });
+  if (o.tufts) scatter(b, o.tufts, b.bounds, 1.5, av, (x, z) => {
+    b.pyr(x, 0, z, 0.34, 0.34, 0.42 + b.rng() * 0.25, o.tuft || '#2c5a30', 0.05);
+    b.pyr(x + 0.14, 0, z + 0.1, 0.26, 0.26, 0.3, o.tuft2 || '#356a38', 0.05);
+  });
+  if (o.stones) scatter(b, o.stones, b.bounds, 1.6, av, (x, z) => {
+    b.boxC(x, 0, z, 0.28 + b.rng() * 0.2, 0.1 + b.rng() * 0.06, 0.22 + b.rng() * 0.2, o.stone || '#5a5e5c', false);
+  });
+  b.jit = sj;
 }
 function boundaryWalls(b, col, h = 9) {
+  const sj = b.jit; b.jit = 0;
+  try { boundaryWalls_(b, col, h); } finally { b.jit = sj; }
+}
+function boundaryWalls_(b, col, h) {
   const bd = b.bounds, t = 2;
   b.box(bd.x0 - t, 0, bd.z0 - t, bd.x1 + t, h, bd.z0, col);
   b.box(bd.x0 - t, 0, bd.z1, bd.x1 + t, h, bd.z1 + t, col);
@@ -395,6 +468,10 @@ function boundaryWalls(b, col, h = 9) {
   b.box(bd.x1, 0, bd.z0, bd.x1 + t, h, bd.z1, col);
 }
 function tree(b, x, z, s = 1, pal) {
+  const sj = b.jit; b.jit = 0.10;
+  try { tree_(b, x, z, s, pal); } finally { b.jit = sj; }
+}
+function tree_(b, x, z, s, pal) {
   pal = pal || {};
   const tc = pal.trunk || '#3b2a1c';
   b.boxC(x, 0, z, 0.55 * s, 3.2 * s, 0.55 * s, tc);
@@ -403,6 +480,10 @@ function tree(b, x, z, s = 1, pal) {
   b.pyr(x, 3.4 * s, z, 2.4 * s, 2.4 * s, 2.4 * s, c2);
 }
 function bush(b, x, z, pal) {
+  const sj = b.jit; b.jit = 0.10;
+  try { bush_(b, x, z, pal); } finally { b.jit = sj; }
+}
+function bush_(b, x, z, pal) {
   const c1 = (pal && pal.bush) || '#2f6a35', c2 = (pal && pal.bush2) || '#3a7a40', c3 = '#255a2c', c4 = '#4a8a48';
   b.colBox(x - 0.9, 0, z - 0.9, x + 0.9, 1.15, z + 0.9);
   b.boxC(x, 0, z, 1.3, 0.45, 1.3, c3, false, 0.08);
@@ -422,7 +503,11 @@ function mound(b, cx, cz, w, d, layers, col, rise = 0.45) {
     b.boxC(cx, 0, cz, w - inset * 2, (i + 1) * rise, d - inset * 2, col);
   }
 }
-function rock(b, x, z, s, col) { b.boxC(x, 0, z, 1.6 * s, 0.9 * s, 1.2 * s, col || '#55595a'); b.boxC(x + 0.2 * s, 0.9 * s, z, 0.9 * s, 0.4 * s, 0.8 * s, col || '#606466', false); }
+function rock(b, x, z, s, col) {
+  const sj = b.jit; b.jit = 0.08;
+  try { rock_(b, x, z, s, col); } finally { b.jit = sj; }
+}
+function rock_(b, x, z, s, col) { b.boxC(x, 0, z, 1.6 * s, 0.9 * s, 1.2 * s, col || '#55595a'); b.boxC(x + 0.2 * s, 0.9 * s, z, 0.9 * s, 0.4 * s, 0.8 * s, col || '#606466', false); }
 function lamp(b, x, z, h = 3.4, col = '#ffd98a') { b.boxC(x, 0, z, 0.18, h, 0.18, '#2a2d30'); b.boxC(x, h, z, 0.5, 0.3, 0.5, col, false, 1.0); }
 function outSpotNear(b, kind, x, z, hint) {
   const a = Math.floor(b.rng() * 8) * (Math.PI / 4);
