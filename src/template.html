@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<title>躲藏與密碼</title>
+<style>
+:root{--bg:#0b0d10;--panel:rgba(18,22,27,.92);--line:#2a323b;--text:#e8edf2;--dim:#93a0ad;--accent:#ff6b4a;--good:#46c37b;--warn:#f2c744;--red:#e5484d;--blue:#3e8bff;--green:#3fb950;--yellow:#f2c744}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:"Noto Sans TC","Microsoft JhengHei","PingFang TC",system-ui,sans-serif;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block;background:#0b0d10}
+.hidden{display:none!important}
+button{font:inherit;color:var(--text);background:#1d242c;border:1px solid var(--line);border-radius:10px;padding:10px 16px;cursor:pointer}
+button:hover{background:#27313b}button:active{transform:translateY(1px)}
+button.pri{background:var(--accent);border-color:transparent;color:#1a0a05;font-weight:700}
+button.pri:hover{background:#ff8266}
+button:disabled{opacity:.45;cursor:not-allowed}
+input[type=text]{font:inherit;color:var(--text);background:#10151a;border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;user-select:text;-webkit-user-select:text}
+.screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 20%,#1b232b 0,#0b0d10 70%);overflow:auto;padding:16px;z-index:20}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;width:min(520px,100%);box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.card h1{margin:0 0 4px;font-size:34px;letter-spacing:.08em}
+.card h2{margin:0 0 12px;font-size:22px}
+.sub{color:var(--dim);margin:0 0 16px;font-size:14px}
+.col{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row>*{flex:1}
+.title-logo{text-align:center;margin-bottom:6px;font-size:56px}
+.tag{display:inline-block;background:#2a323b;border-radius:6px;padding:1px 7px;font-size:12px;color:var(--dim);margin-left:6px}
+.coins{color:var(--warn);font-weight:700}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px}
+.item{border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;background:#12171c}
+.item.sel{border-color:var(--accent)}
+.item .em{font-size:36px}
+.item .nm{font-size:13px;margin:4px 0}
+.item small{color:var(--dim)}
+.mapcards{display:grid;gap:10px}
+.mapcard{display:flex;gap:12px;align-items:center;text-align:left;padding:14px}
+.mapcard .em{font-size:40px}
+.mapcard.sel{border-color:var(--accent);background:#2a1d18}
+.code{font-size:40px;letter-spacing:.25em;font-weight:800;text-align:center;background:#10151a;border:1px dashed var(--line);border-radius:12px;padding:8px 0 8px .25em}
+.plist{display:flex;flex-direction:column;gap:6px}
+.pl{display:flex;align-items:center;gap:10px;background:#12171c;border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.pl .em{font-size:24px}
+.err{color:var(--red);font-size:14px;min-height:18px}
+/* HUD */
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+#hud .abs{position:absolute}
+#hud-lives{left:16px;top:14px;font-size:26px;text-shadow:0 2px 6px #000;letter-spacing:4px}
+#hud-time{left:50%;top:12px;transform:translateX(-50%);font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;text-shadow:0 2px 6px #000;background:rgba(0,0,0,.35);padding:2px 16px;border-radius:12px}
+#hud-time.low{color:var(--red)}
+#hud-tasks{left:16px;top:58px;background:rgba(10,12,15,.55);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px 10px;font-size:14px;min-width:190px}
+#hud-tasks .tk{display:flex;align-items:center;gap:8px;margin:3px 0;white-space:nowrap}
+#hud-tasks .sw{width:14px;height:14px;border-radius:4px;flex:none}
+#hud-tasks .tk small{color:var(--dim)}
+#hud-tasks .note{color:#fff;font-weight:700;letter-spacing:.1em;margin-left:auto;padding-left:8px}
+#hud-mini{right:12px;top:12px;pointer-events:auto;text-align:right}
+#hud-mini canvas{display:block;width:150px;height:150px;border-radius:50%;border:2px solid rgba(255,255,255,.25);background:#05070a}
+#hud-mini.min canvas{display:none}
+#hud-mini button{margin-top:4px;padding:3px 10px;font-size:12px;border-radius:8px;background:rgba(0,0,0,.5)}
+#cross{left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:rgba(255,255,255,.75);box-shadow:0 0 0 1px rgba(0,0,0,.6)}
+#prompt{left:50%;top:58%;transform:translateX(-50%);background:rgba(0,0,0,.62);padding:6px 16px;border-radius:12px;font-size:17px;text-align:center;border:1px solid rgba(255,255,255,.15)}
+#prompt b{background:#fff;color:#000;border-radius:5px;padding:0 6px;margin-right:6px}
+#vig{position:fixed;inset:0;pointer-events:none;box-shadow:inset 0 0 160px 60px rgba(229,72,77,0);transition:box-shadow .2s}
+#flashov{position:fixed;inset:0;pointer-events:none;background:#fff;opacity:0}
+#hidemask{position:fixed;inset:0;pointer-events:none;background:linear-gradient(#000 0,#000 44%,rgba(0,0,0,.15) 47%,rgba(0,0,0,.15) 53%,#000 56%,#000 100%)}
+#chat{left:16px;bottom:96px;width:min(380px,60vw);font-size:14px;text-shadow:0 1px 3px #000;pointer-events:none}
+#chat div{background:rgba(0,0,0,.4);margin-top:3px;padding:2px 8px;border-radius:8px;transition:opacity 1s}
+#chat b{color:var(--warn)}
+#chatbox{left:16px;bottom:56px;width:min(380px,70vw);pointer-events:auto}
+#toasts{left:50%;top:84px;transform:translateX(-50%);text-align:center;width:min(560px,92vw)}
+#toasts div{background:rgba(0,0,0,.65);border:1px solid rgba(255,255,255,.12);margin-top:6px;padding:6px 14px;border-radius:12px;font-size:16px;animation:pop .2s}
+@keyframes pop{from{transform:scale(.9);opacity:0}to{transform:none;opacity:1}}
+#roomtag{right:12px;bottom:10px;font-size:12px;color:var(--dim)}
+#keyhint{left:50%;bottom:14px;transform:translateX(-50%);font-size:12px;color:#cfd6dd;background:rgba(0,0,0,.45);padding:4px 12px;border-radius:10px;white-space:nowrap}
+#ghostbar{left:50%;top:104px;transform:translateX(-50%);background:rgba(60,70,110,.7);padding:6px 16px;border-radius:12px;font-size:15px;pointer-events:auto}
+#itemtag{left:16px;top:196px;font-size:14px}
+/* 覆蓋層 */
+.overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:30;background:rgba(0,0,0,.55);padding:16px}
+#death{background:rgba(120,0,0,.45);flex-direction:column;text-align:center;pointer-events:none}
+#death h2{font-size:42px;margin:0 0 8px;text-shadow:0 4px 20px #000}
+#death p{font-size:20px;margin:4px}
+#result .card{text-align:center}
+#result table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+#result td,#result th{padding:5px 6px;border-bottom:1px solid var(--line);text-align:center}
+#keypad .card{width:min(340px,100%);text-align:center}
+#kp-disp{font-size:40px;letter-spacing:.3em;background:#10151a;border:2px solid var(--line);border-radius:12px;padding:8px 0 8px .3em;margin:8px 0;min-height:64px;font-variant-numeric:tabular-nums}
+#kp-disp.shake{animation:shake .4s;border-color:var(--red);color:var(--red)}
+@keyframes shake{20%{transform:translateX(-10px)}40%{transform:translateX(10px)}60%{transform:translateX(-8px)}80%{transform:translateX(8px)}}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pad button{padding:14px 0;font-size:22px}
+#kp-head{height:10px;border-radius:6px;margin-bottom:8px}
+#kp-notes{font-size:13px;color:var(--dim);margin-top:6px}
+/* 觸控 */
+#touch{position:fixed;inset:0;pointer-events:none;z-index:11}
+#touch>*{position:absolute;pointer-events:auto}
+#joy{left:22px;bottom:30px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.2)}
+#joy i{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px;border-radius:50%;background:rgba(255,255,255,.3)}
+#lookpad{right:0;top:80px;width:55%;bottom:150px;pointer-events:auto}
+.tb{width:62px;height:62px;border-radius:50%;padding:0;font-size:14px;background:rgba(255,255,255,.12);border:2px solid rgba(255,255,255,.28);color:#fff;touch-action:none}
+.tb.on{background:rgba(255,107,74,.6)}
+#tb-act{right:18px;bottom:24px;width:80px;height:80px;font-size:16px;background:rgba(255,107,74,.55)}
+#tb-jump{right:108px;bottom:24px}
+#tb-crouch{right:108px;bottom:96px}
+#tb-run{right:180px;bottom:48px}
+#tb-menu,#tb-chat,#tb-flash{top:14px;width:44px;height:44px;font-size:16px}
+#tb-menu{right:150px}
+#tb-chat{right:202px}
+#tb-flash{right:254px}
+@media (max-width:700px){#hud-tasks{font-size:12px;min-width:150px;top:50px}#hud-mini canvas{width:110px;height:110px}#hud-lives{font-size:20px}#keyhint{display:none}}
+@media (max-height:480px){#hud-tasks{display:none}}
+#loading{background:#0b0d10;flex-direction:column;gap:12px;font-size:18px;z-index:60}
+.spinner{width:34px;height:34px;border:4px solid #2a323b;border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#fps{position:fixed;left:6px;bottom:4px;font-size:11px;color:#6c7885;z-index:40;pointer-events:none}
+.help{font-size:13px;color:var(--dim);line-height:1.7}
+.help b{color:var(--text)}
+input[type=range]{width:100%}
+label.l{display:block;font-size:14px;color:var(--dim);margin:6px 0 2px}
+select{font:inherit;color:var(--text);background:#10151a;border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- 主畫面 -->
+<div id="s-menu" class="screen">
+  <div class="card col">
+    <div class="title-logo">🔐👾</div>
+    <h1 style="text-align:center">躲藏與密碼</h1>
+    <p class="sub" style="text-align:center">躲避怪物，找尋出口</p>
+    <div class="row"><div class="coins">🪙 <span id="m-coins">0</span></div><div style="text-align:right;color:var(--dim)"><span id="m-name"></span> <span class="tag" id="m-title"></span></div></div>
+    <button class="pri" id="b-start">▶ 開始遊戲（單人練習）</button>
+    <div class="row"><button id="b-create">🏠 創建房間</button><button id="b-join">🔑 加入房間</button></div>
+    <button id="b-maps">🗺️ 選地圖：<span id="m-map"></span></button>
+    <div class="row"><button id="b-shop">🛍️ 商店</button><button id="b-titles">🏅 稱號</button><button id="b-set">⚙️ 設定</button></div>
+    <button id="b-rand" disabled title="需要額外的大廳服務，列為後續功能">🎲 隨機配對（即將推出）</button>
+    <div class="err" id="m-err"></div>
+  </div>
+</div>
+
+<!-- 加入房間 -->
+<div id="s-join" class="screen hidden">
+  <div class="card col">
+    <h2>🔑 加入房間</h2>
+    <p class="sub">輸入房主給你的 5 碼房間代碼</p>
+    <input type="text" id="j-code" maxlength="5" placeholder="例如 K7F2Q" autocomplete="off" autocapitalize="characters" style="text-align:center;font-size:30px;letter-spacing:.2em;text-transform:uppercase">
+    <div class="err" id="j-err"></div>
+    <div class="row"><button id="j-back">返回</button><button class="pri" id="j-go">加入</button></div>
+  </div>
+</div>
+
+<!-- 大廳 -->
+<div id="s-lobby" class="screen hidden">
+  <div class="card col" style="width:min(560px,100%)">
+    <h2>🏠 房間大廳</h2>
+    <div class="code" id="l-code">-----</div>
+    <div class="row"><button id="l-copy">📋 複製代碼</button><button id="l-share">🔗 複製邀請連結</button></div>
+    <div class="plist" id="l-players"></div>
+    <div id="l-map" class="row"></div>
+    <div class="err" id="l-err"></div>
+    <div id="l-chat" style="max-height:90px;overflow:auto;font-size:13px;color:var(--dim)"></div>
+    <div class="row"><input type="text" id="l-chatin" placeholder="輸入訊息…" maxlength="60"><button id="l-send" style="flex:none">送出</button></div>
+    <div class="row"><button id="l-leave">離開房間</button><button class="pri" id="l-start">開始遊戲</button></div>
+    <p class="sub" id="l-hint" style="margin:0"></p>
+  </div>
+</div>
+
+<!-- 選地圖 -->
+<div id="s-maps" class="screen hidden">
+  <div class="card col"><h2>🗺️ 選擇地圖</h2><div class="mapcards" id="mp-list"></div><button id="mp-back">返回</button></div>
+</div>
+
+<!-- 商店 -->
+<div id="s-shop" class="screen hidden">
+  <div class="card col" style="width:min(640px,100%)"><h2>🛍️ 頭像商店 <span class="coins" style="float:right">🪙 <span id="sh-coins">0</span></span></h2>
+    <p class="sub">頭像會顯示在房間大廳與其他玩家面前（身體顏色）。金幣可由通關、解鎖與存活獲得。</p>
+    <div class="grid" id="sh-list"></div><div class="err" id="sh-err"></div><button id="sh-back">返回</button></div>
+</div>
+
+<!-- 稱號 -->
+<div id="s-titles" class="screen hidden">
+  <div class="card col"><h2>🏅 稱號</h2><div class="plist" id="tt-list"></div><button id="tt-back">返回</button></div>
+</div>
+
+<!-- 設定 -->
+<div id="s-settings" class="screen hidden" style="z-index:50">
+  <div class="card col">
+    <h2>⚙️ 設定</h2>
+    <label class="l">暱稱</label><input type="text" id="st-name" maxlength="10">
+    <label class="l">音量 <span id="st-vol-v"></span></label><input type="range" id="st-vol" min="0" max="100">
+    <label class="l">畫質（越低越流暢）</label>
+    <select id="st-q"><option value="low">低（最流暢，建議手機）</option><option value="mid">中（預設）</option><option value="high">高</option></select>
+    <label class="l">視角靈敏度 <span id="st-sens-v"></span></label><input type="range" id="st-sens" min="3" max="30">
+    <div class="help"><b>操作說明</b><br>
+      電腦：<b>WASD</b> 移動、<b>滑鼠</b> 轉視角、<b>Shift</b> 跑步、<b>Ctrl／C</b> 蹲下、<b>空白鍵</b> 跳躍、<b>E／點擊</b> 互動、<b>F</b> 手電筒、<b>Enter</b> 聊天、<b>M</b> 小地圖、<b>Esc</b> 選單<br>
+      手機：左側搖桿移動、右側滑動轉視角，右下按鈕為互動／跳躍／蹲下／跑步。<br>
+      目標：找到隱藏的<b>密碼條</b>與同色<b>密碼鎖</b>，解鎖後取得物品，再放到同色<b>放置點</b>即獲勝。怪物看見你 2 秒就會追，躲進衣櫃、床底、草叢可擺脫。
+    </div>
+    <button class="pri" id="st-back">返回</button>
+  </div>
+</div>
+
+<!-- 暫停選單 -->
+<div id="pause" class="overlay hidden">
+  <div class="card col"><h2>選單</h2>
+    <p class="sub">遊戲仍在進行，你的角色會停在原地，怪物仍可能攻擊你！</p>
+    <button class="pri" id="p-resume">繼續遊戲</button>
+    <button id="p-set">設定</button>
+    <button id="p-restart">重新開始（僅房主）</button>
+    <button id="p-quit">返回主畫面</button>
+  </div>
+</div>
+
+<!-- 死亡 -->
+<div id="death" class="overlay hidden"><h2 id="d-title">你被抓住了！</h2><p id="d-sub"></p></div>
+
+<!-- 密碼鎖 -->
+<div id="keypad" class="overlay hidden">
+  <div class="card"><div id="kp-head"></div><h2 id="kp-title">密碼鎖</h2>
+    <div id="kp-disp">----</div>
+    <div class="pad" id="kp-pad"></div>
+    <div id="kp-notes"></div>
+    <div class="row" style="margin-top:10px"><button id="kp-close">關閉</button><button class="pri" id="kp-ok">解鎖</button></div>
+  </div>
+</div>
+
+<!-- 結算 -->
+<div id="result" class="overlay hidden"><div class="card col">
+  <h1 id="r-title" style="font-size:30px">結算</h1>
+  <p class="sub" id="r-sub"></p>
+  <table id="r-tab"></table>
+  <div id="r-reward" class="coins"></div>
+  <div class="row"><button id="r-lobby" class="pri">回到大廳</button><button id="r-home">返回主畫面</button></div>
+</div></div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="vig"></div><div id="flashov"></div><div id="hidemask" class="hidden"></div>
+  <div id="hud-lives" class="abs"></div>
+  <div id="hud-time" class="abs">20:00</div>
+  <div id="hud-tasks" class="abs"></div>
+  <div id="itemtag" class="abs"></div>
+  <div id="hud-mini" class="abs"><canvas id="mm" width="300" height="300"></canvas><br><button id="mm-t">小地圖 ▾</button></div>
+  <div id="cross" class="abs"></div>
+  <div id="prompt" class="abs hidden"></div>
+  <div id="toasts" class="abs"></div>
+  <div id="chat" class="abs"></div>
+  <div id="chatbox" class="abs hidden"><input type="text" id="chatin" maxlength="60" placeholder="輸入訊息，Enter 送出"></div>
+  <div id="ghostbar" class="abs hidden"></div>
+  <div id="roomtag" class="abs"></div>
+  <div id="keyhint" class="abs">WASD 移動・Shift 跑・Ctrl 蹲・空白 跳・E 互動・F 手電筒・Esc 選單</div>
+</div>
+<div id="touch" class="hidden">
+  <div id="lookpad"></div>
+  <div id="joy"><i></i></div>
+  <button class="tb" id="tb-act">互動</button>
+  <button class="tb" id="tb-jump">跳</button>
+  <button class="tb" id="tb-crouch">蹲</button>
+  <button class="tb" id="tb-run">跑</button>
+  <button class="tb" id="tb-menu">☰</button>
+  <button class="tb" id="tb-chat">💬</button>
+  <button class="tb" id="tb-flash">🔦</button>
+</div>
+
+<div id="loading" class="overlay hidden"><div class="spinner"></div><div id="ld-txt">載入中…</div></div>
+<div id="fps"></div>
+
+<script>/*__PEERJS__*/</script>
+<script>
+/*__APP__*/
+</script>
+</body>
+</html>

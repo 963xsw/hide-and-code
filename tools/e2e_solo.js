@@ -1,0 +1,30 @@
+'use strict';
+const { chromium } = require('playwright');
+const path = require('path');
+const OUT = process.env.OUT || '/tmp/claude-0/-home-user/314c8df9-9874-5fa8-bc96-0d4b45210a6f/scratchpad';
+(async () => {
+  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-gl=angle', '--autoplay-policy=no-user-gesture-required'] });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const errs = [];
+  page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errs.push(m.type() + ': ' + m.text()); });
+  page.on('pageerror', e => errs.push('PAGEERROR: ' + e.message + '\n' + (e.stack || '')));
+  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: OUT + '/01_menu.png' });
+  const map = +(process.env.MAP || 0);
+  await page.evaluate(m => { window.__HC.Store.d.map = m; }, map);
+  await page.click('#b-start');
+  await page.waitForFunction(() => window.__HC.G.mode === 'play', null, { timeout: 60000 });
+  await page.waitForTimeout(5500);
+  await page.screenshot({ path: OUT + '/02_play.png' });
+  const info = await page.evaluate(() => { const G = window.__HC.G; return { mode: G.mode, me: G.me && { x: G.me.x, y: G.me.y, z: G.me.z, st: G.me.st }, tm: G.tm, mon: G.mon, locks: G.locks.length, fps: document.getElementById('fps').textContent }; });
+  console.log(JSON.stringify(info));
+  // 往前走一段並看看畫面
+  await page.keyboard.down('KeyW'); await page.waitForTimeout(2500); await page.keyboard.up('KeyW');
+  await page.mouse.move(640, 360);
+  await page.screenshot({ path: OUT + '/03_walk.png' });
+  const info2 = await page.evaluate(() => { const G = window.__HC.G; return { me: { x: G.me.x, y: G.me.y, z: G.me.z }, tm: G.tm }; });
+  console.log(JSON.stringify(info2));
+  console.log('ERRORS:', errs.length ? errs.slice(0, 10).join('\n') : 'none');
+  await browser.close();
+})().catch(e => { console.error('E2E FAIL', e); process.exit(1); });
