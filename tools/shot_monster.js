@@ -12,7 +12,7 @@ const OUT = process.env.OUT;
   const shots = [['patrol', 4.2, 0], ['chase', 3.6, 2], ['far', 9, 1]];
   for (const [name, d, st] of shots) {
     await page.evaluate(([d, st]) => {
-      const G = window.__HC.G, nav = G.sim.nav; const i = nav.nearest(0, 0, 26, 3);
+      const G = window.__HC.G, nav = G.sim.nav; const i = nav.nearest(0, 0, 20, 3);
       const px = nav.nx[i], pz = nav.nz[i];
       G.me.x = px; G.me.y = 0; G.me.z = pz; G.me.yaw = Math.PI; G.me.pitch = 0.05; // 面向 +Z（正南）
       const mo = G.mon; mo.init = true; mo.x = mo.tx = px; mo.z = mo.tz = pz + d; mo.y = mo.ty = 0; mo.yaw = mo.tyaw = 0; mo.st = st; mo.target = st === 2 ? G.myId : ''; mo.phase = 1.2;

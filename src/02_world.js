@@ -10,6 +10,7 @@ class Builder {
     this.spots = { code: [], lock: [], ped: [], frog: [], hide: [], spawn: [], patrol: [] };
     this.portals = [];
     this.theme = {};
+    this.mat = 0;         // 目前的材質編號（見 05_render.js 的 pattern()）
     this.jit = 0;         // 顏色微幅隨機（僅植物／石頭／家具使用）；結構類一律 0，避免共平面重疊時閃爍
   }
   box(x0, y0, z0, x1, y1, z1, col, solid = true, emit = 0) {
@@ -18,9 +19,10 @@ class Builder {
     this.boxes.push({
       x0: Math.min(x0, x1), y0: Math.min(y0, y1), z0: Math.min(z0, z1),
       x1: Math.max(x0, x1), y1: Math.max(y0, y1), z1: Math.max(z0, z1),
-      col: [c[0] * j, c[1] * j, c[2] * j], solid, emit,
+      col: [c[0] * j, c[1] * j, c[2] * j], solid, emit, mat: this.mat,
     });
   }
+  withMat(m, fn) { const s = this.mat; this.mat = m; try { fn(); } finally { this.mat = s; } }
   /* 只有碰撞、不繪製的方塊（讓外觀可以用多個小方塊拼得更細緻） */
   colBox(x0, y0, z0, x1, y1, z1) {
     this.boxes.push({ x0: Math.min(x0, x1), y0: Math.min(y0, y1), z0: Math.min(z0, z1), x1: Math.max(x0, x1), y1: Math.max(y0, y1), z1: Math.max(z0, z1), col: [0, 0, 0], solid: true, emit: 0, novis: true });
@@ -31,7 +33,7 @@ class Builder {
   pyr(cx, y0, cz, w, d, h, col, emit = 0) {
     const c = hexRgb(col);
     const j = this.jit > 0 ? 1 + (this.rng() - 0.5) * 0.12 : 1;
-    this.pyrs.push({ cx, y0, cz, w, d, h, col: [c[0] * j, c[1] * j, c[2] * j], emit });
+    this.pyrs.push({ cx, y0, cz, w, d, h, col: [c[0] * j, c[1] * j, c[2] * j], emit, mat: this.mat });
   }
   /* 沿軸向的牆（含門／窗開口）。gaps: {a,b,y0,y1} 皆為相對牆底的高度與沿牆座標 */
   wall(x0, z0, x1, z1, yb, yt, th, col, gaps, frame) {

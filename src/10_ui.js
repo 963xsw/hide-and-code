@@ -6,7 +6,7 @@ function initRenderer() {
     R = new Renderer($('gl'));
     MODELS = buildModels(R);
     const q = QUALITY[Store.d.q] || QUALITY.mid;
-    R.setScale(q.s); R.drawDist = q.d;
+    R.setScale(q.s); R.drawDist = q.d; R.detail = Store.d.q === 'low' ? 0 : 1;
     return true;
   } catch (e) {
     console.error(e);
@@ -275,34 +275,14 @@ function renderFrame(dt) {
   updateTags();
 }
 
-/* 怪物：駝背巨獸，由多個可擺動的部件組成（肢體隨腳步擺動、下顎開合、觸手搖曳、黏液滴落） */
+/* 怪物：原本的瘦長黑影造型，但體型放大（加寬加粗，高度控制在不穿天花板內） */
+const MON_SCALE = [1.75, 1.12, 1.75];
 function drawMonster(t) {
-  const mo = G.mon, M = MODELS.mon; if (!mo.init) return;
-  const x = mo.x, z = mo.z, yw = mo.yaw, ph = mo.phase || 0, chase = mo.st === 2;
-  if (!R.visible(x, mo.y + 1.2, z, 3.2)) return;
-  const bob = Math.sin(ph * 2) * 0.05 + Math.sin(t * 1.7) * 0.02, y0 = mo.y + bob;
-  const cy = Math.cos(yw), sy = Math.sin(yw);
-  const W = (lx, ly, lz) => [x + cy * lx + sy * lz, y0 + ly, z - sy * lx + cy * lz];
-  R.drawDyn(M.blob, x, mo.y + 0.02, z, yw, 1, 1, 1, { alpha: 0.5 });
-  R.drawDyn(M.body, x, y0, z, yw, 1, 1, 1, { emit: chase ? 0.18 : 0.04 + 0.03 * Math.sin(t * 3) });
-  const twitch = chase ? Math.sin(t * 13) * 0.12 : Math.sin(t * 2.3) * 0.05;
-  const headRx = (chase ? 0.28 : 0.12) + Math.sin(ph * 2) * 0.04;
-  const open = chase ? 0.55 + 0.18 * Math.sin(t * 11) : 0.18 + 0.12 * Math.sin(t * 2.1);
-  R.drawPart(M.head, x, y0, z, yw, 0, 1.95, -0.55, headRx, twitch, { emit: 0.12 + (chase ? 0.25 : 0) });
-  R.drawPart(M.jaw, x, y0, z, yw, 0, 1.95, -0.55, headRx - open, twitch);
-  const swL = chase ? 1.0 + Math.sin(t * 8) * 0.35 : Math.sin(ph) * 0.45, swR = chase ? 1.0 + Math.sin(t * 8 + 2) * 0.35 : -Math.sin(ph) * 0.45;
-  R.drawPart(M.armL, x, y0, z, yw, -0.95, 2.0, -0.1, swL, -0.1);
-  R.drawPart(M.armR, x, y0, z, yw, 0.95, 2.0, -0.1, swR, 0.1);
-  const lg = Math.sin(ph) * 0.7;
-  R.drawPart(M.legL, x, y0, z, yw, -0.32, 0.95, 0.05, lg, 0);
-  R.drawPart(M.legR, x, y0, z, yw, 0.32, 0.95, 0.05, -lg, 0);
-  const tp = [[-0.28, 2.3, 0.45], [0.28, 2.3, 0.45], [-0.12, 2.5, 0.5], [0.12, 2.5, 0.5]];
-  for (let k = 0; k < 4; k++) R.drawPart(M.tend[k], x, y0, z, yw, tp[k][0], tp[k][1], tp[k][2], 0.9 + k * 0.1 + Math.sin(t * 2.2 + k) * 0.35, (k % 2 ? 0.3 : -0.3) + Math.sin(t * 1.7 + k * 2) * 0.25, { emit: 0.05 });
-  for (let k = 0; k < 3; k++) {
-    const f = (t * 1.1 + k * 0.37) % 1, src = k === 2 ? [0.3, 1.0, -0.62] : [(k - 0.5) * 0.12, 1.75, -1.15];
-    const w = W(src[0], src[1] - f * (k === 2 ? 1.0 : 1.7), src[2]);
-    R.drawDyn(M.drip, w[0], w[1], w[2], yw, 1, 1, 1, { maxDist: 24 });
-  }
+  const mo = G.mon, M = MODELS; if (!mo.init) return;
+  if (!R.visible(mo.x, mo.y + 1.4, mo.z, 4.0)) return;
+  const chase = mo.st === 2, bob = Math.sin((mo.phase || 0) * 2) * 0.04;
+  R.drawDyn(M.blob, mo.x, mo.y + 0.02, mo.z, mo.yaw, 1.5, 1, 1.5, { alpha: 0.5 });
+  R.drawDyn(M.monster, mo.x, mo.y + bob, mo.z, mo.yaw, MON_SCALE[0], MON_SCALE[1], MON_SCALE[2], { emit: chase ? 0.25 : 0 });
 }
 
 function hudFrame(dt) {
@@ -418,7 +398,7 @@ function closeChat() { G.chatOpen = false; $('chatbox').classList.add('hidden');
 function applySettings() {
   const d = Store.d;
   Sfx.setVolume(d.vol / 100);
-  if (R) { const q = QUALITY[d.q] || QUALITY.mid; R.setScale(q.s); R.drawDist = q.d; }
+  if (R) { const q = QUALITY[d.q] || QUALITY.mid; R.setScale(q.s); R.drawDist = q.d; R.detail = d.q === 'low' ? 0 : 1; }
 }
 function wireUI() {
   const on = (id, fn) => $(id).addEventListener('click', e => { Sfx.init(); Sfx.click(); fn(e); });

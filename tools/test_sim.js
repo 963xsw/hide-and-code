@@ -31,10 +31,10 @@ for (let mi = 0; mi < 3; mi++) {
   p.prot = 0; m.cool = 0;
   // 找一個前方 8m 視線通暢的位置
   let placed = false;
-  for (let a = 0; a < 16 && !placed; a++) {
-    const ang = a * Math.PI / 8; m.yaw = ang;
+  for (let a = 0; a < 32 && !placed; a++) {
+    const ang = a * Math.PI / 16; m.yaw = ang;
     const fx = -Math.sin(ang), fz = -Math.cos(ang);
-    for (const d of [8, 6, 10]) {
+    for (const d of [8, 6, 10, 5, 4, 3, 12]) {
       const x = m.x + fx * d, z = m.z + fz * d;
       if (sim2.world.los(m.x, m.y + 1.9, m.z, x, m.y + 1.5, z)) {
         const i = sim2.nav.nearest(x, m.y, z, 2);

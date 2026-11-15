@@ -4,9 +4,9 @@ const { chromium } = require('playwright');
 const path = require('path');
 const OUT = process.env.OUT || '/tmp/claude-0/-home-user/314c8df9-9874-5fa8-bc96-0d4b45210a6f/scratchpad';
 const VIEWS = {
-  0: [['front', -9.5, 0, -15.5, 0, 0.2], ['hall', -9.5, 0, -22, 0, 0.0], ['room', -1.5, 0, -27.5, 0, 0.05], ['corridor', -3, 0, -25, -Math.PI / 2, 0], ['maze', 0, 0, 6, 0, 0.0], ['grave', -26, 0, 12, Math.PI / 2 * 3, 0.0], ['forest', 26, 0, 24, 2.2, 0.0]],
-  1: [['street', 0, 0, 16, 0, 0.1], ['tower', -20, 0, -14, 0, 0.25], ['bridge', -6, 6.4, -27, -Math.PI / 2, 0], ['roof', -19, 12.8, -24, 0, -0.2], ['container', -22, 0, -6, Math.PI / 2, 0.1], ['hall', -29.5, 0, 20, 0, 0]],
-  2: [['gate', 0, 0, 30, 0, 0.15], ['court', 0, 0, -17, Math.PI, 0.15], ['keep', -2, 0, 6, 0, 0.0], ['dungeon', -13, 0, 14, -Math.PI / 2, 0], ['wallwalk', 0, 6.4, -22.8, -Math.PI / 2, 0], ['hall', -6.5, 0, -5, 0, 0]],
+  0: [['front', -7.5, 0, -11.5, 0, 0.22], ['hall', -7.5, 0, -16, 0, 0.0], ['room', 1, 0, -24.5, 0, 0.0], ['corridor', -1, 0, -21, -Math.PI / 2, 0], ['maze', 0, 0, 9, 0, 0.0], ['grave', -12, 0, 0, Math.PI / 2, 0.0], ['forest', 22, 0, 18, 2.2, 0.0]],
+  1: [['street', 0, 0, 18, 0, 0.12], ['cross', 0, 0, 12, 0, 0.18], ['tower', -14, 0, -9, 0, 0.3], ['bridge', -5, 6.4, -20, -Math.PI / 2, 0], ['plaza', -12, 0, 9.5, Math.PI / 2, 0.15], ['hall', -23.5, 0, 17, 0, 0]],
+  2: [['gate', 0, 0, 26, 0, 0.15], ['court', 0, 0, -14.5, Math.PI, 0.15], ['keep', -4, 0, 8, 0, 0.0], ['dungeon', 0, 0, 4, 0, 0], ['wallwalk', 0, 6.4, -18.8, -Math.PI / 2, 0], ['hall', -3.5, 0, -4, 0, 0]],
 };
 (async () => {
   const map = +(process.env.MAP || 0);

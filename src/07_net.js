@@ -17,7 +17,7 @@ class HostNet {
   open(code, cb) {
     this.cb = cb; this.code = code;
     if (this.mode === 'bc') return this.openBC(code);
-    const opts = { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] } };
+    const opts = { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:global.stun.twilio.com:3478' }] } };
     const peer = new Peer(ROOM_PREFIX + code, opts);
     this.peer = peer;
     peer.on('open', () => cb.onReady && cb.onReady(code));
@@ -68,7 +68,7 @@ class ClientNet {
   connect(code, cb) {
     this.cb = cb; this.code = code;
     if (this.mode === 'bc') return this.connectBC(code);
-    const opts = { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] } };
+    const opts = { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:global.stun.twilio.com:3478' }] } };
     const peer = new Peer(undefined, opts);
     this.peer = peer;
     let done = false;

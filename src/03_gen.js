@@ -32,6 +32,7 @@ function addStairs(b, o, k, col) {
   try { return addStairs_(b, o, k, col); } finally { b.jit = sj; }
 }
 function addStairs_(b, o, k, col) {
+  b.mat = 6;
   const f = flightInfo(o, k), yb = k * H_FLOOR, rise = H_FLOOR / STAIR_N;
   for (let i = 0; i < STAIR_N; i++) {
     const top = yb + (i + 1) * rise;
@@ -171,7 +172,6 @@ function furnishRoom_(b, R, yb, pal, opt) {
     const sj2 = b.jit; b.jit = 0;      // 地板細節不抖色，避免重疊處閃爍
     const fl = yb === 0 ? 0.04 : yb, zA = Math.min(R.backZ, R.frontZ), zB = Math.max(R.backZ, R.frontZ);
     const seam = P.seam || '#241a12', base = P.base || '#1f1812';
-    for (let px = R.ax0 + 0.55; px < R.ax1 - 0.3; px += 0.8) b.box(px - 0.014, fl + 0.006, zA, px + 0.014, fl + 0.011, zB, seam, false);
     const bh = 0.14, bt = 0.04;
     b.box(R.ax0, fl, R.backZ, R.ax1, fl + bh, R.backZ + R.backIn * bt, base, false);                       // 後牆
     b.box(R.ax0, fl, zA, R.ax0 + bt, fl + bh, zB, base, false);                                              // 左牆
@@ -249,6 +249,10 @@ function building(b, o) {
   try { building_(b, o); } finally { b.jit = sj; }
 }
 function building_(b, o) {
+  const sm = b.mat;
+  try { building__(b, o); } finally { b.mat = sm; }
+}
+function building__(b, o) {
   o = Object.assign({ floors: 3, hallW: 10, rooms: 3, roof: 'pitched', windows: true, extraDoors: [], hideProb: 0.5 }, o);
   const { x0, z0, x1, z1, floors } = o;
   const H = H_FLOOR, cz = (z0 + z1) / 2;
@@ -260,8 +264,9 @@ function building_(b, o) {
   const flights = o.roof === 'access' ? floors : floors - 1;
   const roofHole = o.roof === 'access' ? flightInfo(o, floors - 1).hole : null;
 
-  // 地板視覺
-  b.box(x0, 0, z0, x1, 0.04, z1, pal.floor, false);
+  const MW = pal.matWall === undefined ? 7 : pal.matWall, MF = pal.matFloor === undefined ? 5 : pal.matFloor, MR = pal.matRoof === undefined ? 9 : pal.matRoof;
+  // 地板視覺（木地板貼圖）
+  b.mat = MF; b.box(x0, 0, z0, x1, 0.04, z1, pal.floor, false); b.mat = MW;
   const winGapsX = (zFixed, yb2) => {
     const gaps = [];
     if (!o.windows) return gaps;
@@ -280,7 +285,7 @@ function building_(b, o) {
   for (let k = 0; k < floors; k++) {
     const yb = k * H, yt = yb + H - SLAB;
     // 樓板
-    if (k >= 1) slabHole(b, x0, z0, x1, z1, yb - SLAB, yb, pal.floor, flightInfo(o, k - 1).hole);
+    if (k >= 1) { b.mat = MF; slabHole(b, x0, z0, x1, z1, yb - SLAB, yb, pal.floor, flightInfo(o, k - 1).hole); b.mat = MW; }
     // 外牆
     const ex = o.extraDoors.filter(d => d.level === k);
     const gN = stripWin(winGapsX(z0, yb)), gS = stripWin(winGapsX(z1, yb)), gW = winGapsZ(), gE = winGapsZ();
@@ -348,7 +353,7 @@ function building_(b, o) {
   }
   // 屋頂
   const yTop = floors * H;
-  slabHole(b, x0, z0, x1, z1, yTop - SLAB, yTop, pal.roofSlab || pal.ceil, roofHole);
+  b.mat = o.roof === 'access' ? (pal.matRoofSlab === undefined ? 7 : pal.matRoofSlab) : MF; slabHole(b, x0, z0, x1, z1, yTop - SLAB, yTop, pal.roofSlab || pal.ceil, roofHole); b.mat = MW;
   if (o.roof === 'access') {
     // 女兒牆與屋頂小物
     const pc = pal.parapet || pal.wall, ph = o.noParapet ? 0.0 : 1.1;
@@ -367,7 +372,7 @@ function building_(b, o) {
       mkTank(b, x0 + o.hallW + 15, yTop, z0 + 4);
     }
   } else if (o.roof === 'pitched') {
-    b.pyr((x0 + x1) / 2, yTop, (z0 + z1) / 2, (x1 - x0) + 2, (z1 - z0) + 2, o.roofH || 5, pal.roofCol);
+    b.mat = MR; b.pyr((x0 + x1) / 2, yTop, (z0 + z1) / 2, (x1 - x0) + 2, (z1 - z0) + 2, o.roofH || 5, pal.roofCol); b.mat = MW;
   }
 }
 
@@ -377,6 +382,10 @@ function mazeGen(b, o) {
   try { return mazeGen_(b, o); } finally { b.jit = sj; }
 }
 function mazeGen_(b, o) {
+  b.mat = o.mat === undefined ? 10 : o.mat;
+  try { return mazeGen__(b, o); } finally { b.mat = 0; }
+}
+function mazeGen__(b, o) {
   const { ox, oz, cols, rows, cell, th, h, col } = o;
   const rng = b.rng;
   const right = [], down = [];
@@ -432,12 +441,12 @@ function mazeGen_(b, o) {
 }
 
 /* ---------- 戶外 ---------- */
-function groundTiles(b, colFn, tile = 6) {
-  const bd = b.bounds, sj = b.jit; b.jit = 0.06;
+function groundTiles(b, colFn, tile = 6, mat = 1) {
+  const bd = b.bounds, sj = b.jit, sm = b.mat; b.jit = 0; b.mat = mat;
   for (let x = bd.x0; x < bd.x1; x += tile) for (let z = bd.z0; z < bd.z1; z += tile) {
     b.box(x, -0.4, z, x + tile, 0, z + tile, colFn(x + tile / 2, z + tile / 2), false);
   }
-  b.jit = sj;
+  b.jit = sj; b.mat = sm;
 }
 /* 地面細節：不重疊的薄片土塊／草簇／碎石（全是靜態方塊，依區塊剔除） */
 function groundDetail(b, o) {
@@ -474,10 +483,10 @@ function tree(b, x, z, s = 1, pal) {
 function tree_(b, x, z, s, pal) {
   pal = pal || {};
   const tc = pal.trunk || '#3b2a1c';
-  b.boxC(x, 0, z, 0.55 * s, 3.2 * s, 0.55 * s, tc);
+  b.mat = 11; b.boxC(x, 0, z, 0.55 * s, 3.2 * s, 0.55 * s, tc);
   const c1 = pal.leaf1 || '#1f4a2a', c2 = pal.leaf2 || '#2a5a34';
-  b.pyr(x, 2.0 * s, z, 3.4 * s, 3.4 * s, 2.6 * s, c1);
-  b.pyr(x, 3.4 * s, z, 2.4 * s, 2.4 * s, 2.4 * s, c2);
+  b.mat = 10; b.pyr(x, 2.0 * s, z, 3.4 * s, 3.4 * s, 2.6 * s, c1);
+  b.pyr(x, 3.4 * s, z, 2.4 * s, 2.4 * s, 2.4 * s, c2); b.mat = 0;
 }
 function bush(b, x, z, pal) {
   const sj = b.jit; b.jit = 0.10;
@@ -490,7 +499,7 @@ function bush_(b, x, z, pal) {
   // 錯落的低多邊形葉叢（四角錐），比方塊更像灌木
   const cl = [[0, 0, 0, 1.7, 1.35, c1], [-0.32, 0.28, 0, 1.3, 1.05, c2], [0.36, 0.22, 0, 1.35, 1.0, c3], [0.22, -0.4, 0, 1.25, 1.1, c2],
     [-0.35, -0.34, 0, 1.15, 0.95, c1], [0.05, 0.05, 0.25, 1.1, 1.3, c4], [-0.5, 0.45, 0, 0.9, 0.7, c3], [0.5, -0.1, 0.1, 0.85, 0.75, c4]];
-  for (const [dx, dz, dy, w, h, c] of cl) b.pyr(x + dx, 0.12 + dy, z + dz, w, w, h, c, 0.09);
+  b.mat = 10; for (const [dx, dz, dy, w, h, c] of cl) b.pyr(x + dx, 0.12 + dy, z + dz, w, w, h, c, 0.09); b.mat = 0;
   for (let k = 0; k < 5; k++) {
     const an = b.rng() * TAU, rr = 0.55 + b.rng() * 0.25;
     b.boxC(x + Math.cos(an) * rr, 0.5 + b.rng() * 0.55, z + Math.sin(an) * rr, 0.1, 0.1, 0.1, rpick(b.rng, ['#ff8fb0', '#ffe27a', '#ffffff']), false, 0.55);
@@ -507,7 +516,8 @@ function rock(b, x, z, s, col) {
   const sj = b.jit; b.jit = 0.08;
   try { rock_(b, x, z, s, col); } finally { b.jit = sj; }
 }
-function rock_(b, x, z, s, col) { b.boxC(x, 0, z, 1.6 * s, 0.9 * s, 1.2 * s, col || '#55595a'); b.boxC(x + 0.2 * s, 0.9 * s, z, 0.9 * s, 0.4 * s, 0.8 * s, col || '#606466', false); }
+function rock_(b, x, z, s, col) {
+  b.mat = 6; b.boxC(x, 0, z, 1.6 * s, 0.9 * s, 1.2 * s, col || '#55595a'); b.boxC(x + 0.2 * s, 0.9 * s, z, 0.9 * s, 0.4 * s, 0.8 * s, col || '#606466', false); b.mat = 0; }
 function lamp(b, x, z, h = 3.4, col = '#ffd98a') { b.boxC(x, 0, z, 0.18, h, 0.18, '#2a2d30'); b.boxC(x, h, z, 0.5, 0.3, 0.5, col, false, 1.0); }
 function outSpotNear(b, kind, x, z, hint) {
   const a = Math.floor(b.rng() * 8) * (Math.PI / 4);
@@ -528,4 +538,107 @@ function scatter(b, n, region, minD, avoid, fn) {
     placed.push([x, z]); fn(x, z, placed.length - 1);
   }
   return placed;
+}
+
+/* ===== 街道與場景道具（全是少量方塊；貼圖由 shader 提供） ===== */
+function bench(b, x, z, along) {      // along: 'x' 或 'z'（長邊方向），背板在 -方向側
+  const L = 1.7, W = 0.5, sx = along === 'x' ? L : W, sz = along === 'x' ? W : L;
+  b.colBox(x - sx / 2, 0, z - sz / 2, x + sx / 2, 0.5, z + sz / 2);
+  b.boxC(x, 0.45, z, sx, 0.07, sz, '#6a4a2a', false);
+  if (along === 'x') { b.boxC(x, 0.7, z - 0.22, L, 0.4, 0.05, '#5a3e24', false); for (const dx of [-0.7, 0.7]) b.boxC(x + dx, 0, z, 0.08, 0.45, W - 0.1, '#222426', false); }
+  else { b.boxC(x - 0.22, 0.7, z, 0.05, 0.4, L, '#5a3e24', false); for (const dz of [-0.7, 0.7]) b.boxC(x, 0, z + dz, W - 0.1, 0.45, 0.08, '#222426', false); }
+}
+function hydrant(b, x, z) {
+  b.boxC(x, 0, z, 0.3, 0.62, 0.3, '#a82a2a'); b.boxC(x, 0.62, z, 0.38, 0.08, 0.38, '#7a1c1c', false); b.boxC(x, 0.7, z, 0.18, 0.12, 0.18, '#a82a2a', false);
+  b.boxC(x - 0.22, 0.3, z, 0.14, 0.12, 0.14, '#c9b27a', false); b.boxC(x + 0.22, 0.3, z, 0.14, 0.12, 0.14, '#c9b27a', false);
+}
+function trafficLight(b, x, z, fx, fz) {   // (fx,fz)=朝向路口的單位向量
+  b.boxC(x, 0, z, 0.16, 4.1, 0.16, '#26282b');
+  const hx = x + fx * 0.14, hz = z + fz * 0.14;
+  b.boxC(hx, 3.2, hz, fx ? 0.26 : 0.42, 1.15, fz ? 0.26 : 0.42, '#17181a', false);
+  const lx = x + fx * 0.3, lz = z + fz * 0.3;
+  b.boxC(lx, 4.05, lz, fx ? 0.04 : 0.2, 0.2, fz ? 0.04 : 0.2, '#ff3020', false, 1.1);
+  b.boxC(lx, 3.75, lz, fx ? 0.04 : 0.2, 0.2, fz ? 0.04 : 0.2, '#ffb020', false, 0.18);
+  b.boxC(lx, 3.45, lz, fx ? 0.04 : 0.2, 0.2, fz ? 0.04 : 0.2, '#20ff60', false, 0.18);
+}
+function barrel(b, x, z, col = '#6a4a2a') {
+  b.colBox(x - 0.36, 0, z - 0.36, x + 0.36, 0.95, z + 0.36);
+  b.boxC(x, 0, z, 0.6, 0.95, 0.6, col, false); b.boxC(x, 0.1, z, 0.72, 0.1, 0.72, '#222', false); b.boxC(x, 0.75, z, 0.72, 0.1, 0.72, '#222', false);
+  b.boxC(x, 0.42, z, 0.7, 0.1, 0.7, '#2a2a2a', false);
+}
+function brazier(b, x, z) {
+  b.colBox(x - 0.4, 0, z - 0.4, x + 0.4, 1.0, z + 0.4);
+  b.boxC(x, 0, z, 0.22, 0.7, 0.22, '#1c1c1e', false); b.boxC(x, 0.7, z, 0.8, 0.22, 0.8, '#26262a', false);
+  b.boxC(x, 0.9, z, 0.6, 0.06, 0.6, '#ff7a20', false, 1.0);
+  b.pyr(x, 0.95, z, 0.5, 0.5, 0.7, '#ff9a30', 1.3); b.pyr(x + 0.08, 0.95, z - 0.05, 0.28, 0.28, 0.95, '#ffd060', 1.5);
+}
+function banner(b, x, y, z, axis, col = '#7a1c22') {   // axis: 'z' 表示掛在朝 ±z 的牆面（寬度沿 x），'x' 表示掛在朝 ±x 的牆
+  const w = 0.9, h = 2.0;
+  if (axis === 'z') { b.boxC(x, y, z, w, h, 0.05, col, false, 0.05); b.boxC(x, y + h - 0.12, z, w + 0.2, 0.1, 0.09, '#a8873a', false); b.boxC(x, y + 0.5, z + 0.03, 0.18, 0.5, 0.02, '#a8873a', false, 0.1); }
+  else { b.boxC(x, y, z, 0.05, h, w, col, false, 0.05); b.boxC(x, y + h - 0.12, z, 0.09, 0.1, w + 0.2, '#a8873a', false); b.boxC(x + 0.03, y + 0.5, z, 0.02, 0.5, 0.18, '#a8873a', false, 0.1); }
+}
+function statue(b, x, z) {
+  b.mat = 6;
+  b.colBox(x - 0.55, 0, z - 0.55, x + 0.55, 2.4, z + 0.55);
+  b.boxC(x, 0, z, 1.1, 0.35, 1.1, '#7a7d80', false); b.boxC(x, 0.35, z, 0.7, 0.9, 0.7, '#8a8d90', false);
+  b.boxC(x, 1.25, z, 0.42, 0.85, 0.3, '#9a9da0', false); b.boxC(x, 2.1, z, 0.26, 0.3, 0.26, '#9a9da0', false);
+  b.boxC(x - 0.34, 1.5, z + 0.12, 0.06, 0.9, 0.4, '#8a8d90', false); b.boxC(x + 0.34, 1.5, z + 0.12, 0.06, 0.9, 0.4, '#8a8d90', false);
+  b.boxC(x, 1.6, z - 0.18, 0.5, 0.2, 0.08, '#8a8d90', false);
+  b.mat = 0;
+}
+function deadTree(b, x, z, s = 1) {
+  b.mat = 11; b.boxC(x, 0, z, 0.4 * s, 3.0 * s, 0.4 * s, '#2a2018');
+  b.boxC(x + 0.5 * s, 1.8 * s, z, 0.9 * s, 0.14 * s, 0.14 * s, '#2a2018', false); b.boxC(x - 0.45 * s, 2.3 * s, z + 0.1, 0.8 * s, 0.12 * s, 0.12 * s, '#2a2018', false);
+  b.boxC(x, 2.6 * s, z - 0.5 * s, 0.12 * s, 0.12 * s, 0.9 * s, '#2a2018', false); b.boxC(x + 0.1, 1.2 * s, z + 0.45 * s, 0.12 * s, 0.12 * s, 0.8 * s, '#2a2018', false);
+  b.mat = 0;
+}
+function fenceRun(b, x0, z0, x1, z1, h = 1.4, col = '#1c1e20') {
+  const alongX = Math.abs(z1 - z0) < 1e-6, L = alongX ? Math.abs(x1 - x0) : Math.abs(z1 - z0);
+  const n = Math.max(1, Math.round(L / 1.6)), step = L / n, sx = Math.sign(x1 - x0) || 1, sz = Math.sign(z1 - z0) || 1;
+  if (alongX) b.colBox(Math.min(x0, x1), 0, z0 - 0.06, Math.max(x0, x1), h, z0 + 0.06); else b.colBox(x0 - 0.06, 0, Math.min(z0, z1), x0 + 0.06, h, Math.max(z0, z1));
+  for (let i = 0; i <= n; i++) {
+    const px = alongX ? x0 + sx * step * i : x0, pz = alongX ? z0 : z0 + sz * step * i;
+    b.boxC(px, 0, pz, 0.12, h + 0.12, 0.12, col, false); b.pyr(px, h + 0.12, pz, 0.16, 0.16, 0.16, col);
+  }
+  for (const ry of [0.3, 0.75, 1.2]) {
+    if (alongX) b.boxC((x0 + x1) / 2, ry, z0, L, 0.05, 0.05, col, false); else b.boxC(x0, ry, (z0 + z1) / 2, 0.05, 0.05, L, col, false);
+  }
+  const bars = Math.floor(L / 0.35);
+  for (let i = 1; i < bars; i++) { const t = i * 0.35, px = alongX ? Math.min(x0, x1) + t : x0, pz = alongX ? z0 : Math.min(z0, z1) + t; b.boxC(px, 0.1, pz, 0.025, h - 0.1, 0.025, col, false); }
+}
+function fallenLog(b, x, z, alongX = true) {
+  b.mat = 11;
+  const w = alongX ? 3.0 : 0.55, d = alongX ? 0.55 : 3.0;
+  b.boxC(x, 0, z, w, 0.55, d, '#3a2a1c');
+  b.boxC(x + (alongX ? 1.45 : 0), 0.1, z + (alongX ? 0 : 1.45), alongX ? 0.12 : 0.4, 0.36, alongX ? 0.4 : 0.12, '#8a6a42', false);
+  b.mat = 0;
+}
+function mushrooms(b, x, z) {
+  for (let i = 0; i < 4; i++) {
+    const a = b.rng() * TAU, r = b.rng() * 0.6, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r, h = 0.12 + b.rng() * 0.18;
+    b.boxC(px, 0, pz, 0.04, h, 0.04, '#b8b0a0', false); b.boxC(px, h, pz, 0.16 + b.rng() * 0.08, 0.06, 0.16 + b.rng() * 0.08, '#4fd0c0', false, 0.9);
+  }
+}
+function gardenBed(b, x, z, w, d) {
+  b.colBox(x - w / 2, 0, z - d / 2, x + w / 2, 0.4, z + d / 2);
+  b.boxC(x, 0, z, w, 0.3, d, '#4a3a2a', false); b.boxC(x, 0.3, z, w - 0.2, 0.05, d - 0.2, '#2a2218', false);
+  b.boxC(x, 0, z - d / 2 + 0.03, w + 0.08, 0.38, 0.06, '#5a5a56', false); b.boxC(x, 0, z + d / 2 - 0.03, w + 0.08, 0.38, 0.06, '#5a5a56', false);
+  for (let i = 0; i < Math.floor(w / 0.35); i++) b.boxC(x - w / 2 + 0.25 + i * 0.35, 0.33, z + (b.rng() - 0.5) * (d - 0.4), 0.03, 0.2 + b.rng() * 0.35, 0.03, '#4a4a2a', false);
+}
+function manhole(b, x, z) { b.boxC(x, 0.012, z, 1.1, 0.004, 1.1, '#34363a', false); b.boxC(x, 0.012, z, 0.9, 0.012, 0.9, '#1d1f22', false); b.boxC(x, 0.024, z, 0.6, 0.002, 0.08, '#34363a', false); b.boxC(x, 0.024, z, 0.08, 0.002, 0.6, '#34363a', false); }
+function neonSign(b, x, y, z, w, h, axis, col) {   // axis: 'z' 面向 ±z
+  if (axis === 'z') { b.boxC(x, y, z, w + 0.1, h + 0.1, 0.05, '#17181a', false); b.boxC(x, y + 0.05, z + Math.sign(z) * 0.0, w, h, 0.06, col, false, 0.95); }
+  else { b.boxC(x, y, z, 0.05, h + 0.1, w + 0.1, '#17181a', false); b.boxC(x, y + 0.05, z, 0.06, h, w, col, false, 0.95); }
+}
+function streetTree(b, x, z, s = 1) {
+  b.colBox(x - 0.5, 0, z - 0.5, x + 0.5, 0.5, z + 0.5);
+  b.boxC(x, 0, z, 1.0, 0.45, 1.0, '#4a4e52', false); b.boxC(x, 0.45, z, 0.82, 0.05, 0.82, '#2a2218', false);
+  b.mat = 11; b.boxC(x, 0.45, z, 0.22 * s, 2.4 * s, 0.22 * s, '#3a2a1c'); b.mat = 10;
+  b.pyr(x, 1.8 * s, z, 2.2 * s, 2.2 * s, 1.8 * s, '#3a5a3a', 0.04); b.pyr(x, 2.9 * s, z, 1.5 * s, 1.5 * s, 1.5 * s, '#4a6a44', 0.04); b.mat = 0;
+}
+function crosswalk(b, cx, cz, alongZ) {     // 斑馬線：9 條 0.5 寬、間隔 0.5
+  for (let i = -4; i <= 4; i++) {
+    if (alongZ) b.box(cx + i * 1.0 - 0.25, 0.012, cz - 1.25, cx + i * 1.0 + 0.25, 0.017, cz + 1.25, '#d8d8cf', false);
+    else b.box(cx - 1.25, 0.012, cz + i * 1.0 - 0.25, cx + 1.25, 0.017, cz + i * 1.0 + 0.25, '#d8d8cf', false);
+  }
 }

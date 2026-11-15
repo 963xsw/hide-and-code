@@ -1,6 +1,7 @@
 'use strict';
 /* ===== 原生 WebGL 低多邊形渲染器 ===== */
-const STRIDE = 10; // pos3 nor3 col3 emit1
+const STRIDE = 11; // pos3 nor3 col3 emit1 mat1
+let PMAT = 0;      // 目前要寫入的材質編號（靜態地圖建構時由方塊提供）
 
 const FACES = [
   // nx,ny,nz, 四個角（相對於 min/max 的選擇：0=min,1=max）
@@ -19,7 +20,7 @@ function pushBox(a, x0, y0, z0, x1, y1, z1, c, em, skipBottom) {
     const v = F[3].map(q => [q[0] ? hi[0] : lo[0], q[1] ? hi[1] : lo[1], q[2] ? hi[2] : lo[2]]);
     for (const idx of [0, 1, 2, 0, 2, 3]) {
       const p = v[idx];
-      a.push(p[0], p[1], p[2], F[0], F[1], F[2], c[0], c[1], c[2], em);
+      a.push(p[0], p[1], p[2], F[0], F[1], F[2], c[0], c[1], c[2], em, PMAT);
     }
   }
 }
@@ -29,7 +30,7 @@ function pushPyr(a, cx, y0, cz, w, d, h, c, em) {
     const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2], vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2];
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
-    for (const s of [p, q, r]) a.push(s[0], s[1], s[2], nx, ny, nz, c[0], c[1], c[2], em);
+    for (const s of [p, q, r]) a.push(s[0], s[1], s[2], nx, ny, nz, c[0], c[1], c[2], em, PMAT);
   };
   const A = [x0, y0, z0], B = [x1, y0, z0], C = [x1, y0, z1], D = [x0, y0, z1], T = [cx, ty, cz];
   tri(A, B, T); tri(B, C, T); tri(C, D, T); tri(D, A, T);
@@ -41,23 +42,75 @@ function pushPyrInv(a, cx, ytop, cz, w, d, h, c, em) {   // 尖端朝下的四�
     const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2], vx = r2[0] - p[0], vy = r2[1] - p[1], vz = r2[2] - p[2];
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
-    for (const s of [p, q, r2]) a.push(s[0], s[1], s[2], nx, ny, nz, c[0], c[1], c[2], em);
+    for (const s of [p, q, r2]) a.push(s[0], s[1], s[2], nx, ny, nz, c[0], c[1], c[2], em, PMAT);
   };
   const A = [x0, ytop, z0], B = [x1, ytop, z0], C = [x1, ytop, z1], D = [x0, ytop, z1], T = [cx, by, cz];
   tri(B, A, T); tri(C, B, T); tri(D, C, T); tri(A, D, T);
 }
 
 const VS = `
-attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute float aEm;
+attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute float aEm; attribute float aMat;
 uniform mat4 uVP; uniform mat4 uM;
-varying vec3 vPos; varying vec3 vNor; varying vec3 vCol; varying float vEm;
-void main(){ vec4 wp=uM*vec4(aPos,1.0); vPos=wp.xyz; vNor=mat3(uM)*aNor; vCol=aCol; vEm=aEm; gl_Position=uVP*wp; }`;
+varying vec3 vPos; varying vec3 vNor; varying vec3 vCol; varying float vEm; varying float vMat;
+void main(){ vec4 wp=uM*vec4(aPos,1.0); vPos=wp.xyz; vNor=mat3(uM)*aNor; vCol=aCol; vEm=aEm; vMat=aMat; gl_Position=uVP*wp; }`;
 const FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
-varying vec3 vPos; varying vec3 vNor; varying vec3 vCol; varying float vEm;
+#endif
+uniform sampler2D uTexH; uniform sampler2D uTexN;
+varying vec3 vPos; varying vec3 vNor; varying vec3 vCol; varying float vEm; varying float vMat;
 uniform vec3 uCam; uniform vec3 uFwd; uniform float uAmb; uniform float uSun; uniform vec3 uSunDir;
 uniform float uFlash; uniform vec2 uCone; uniform vec3 uFogCol; uniform float uFogNear; uniform float uFogFar;
-uniform float uAlpha; uniform vec3 uTint; uniform float uEmitAdd; uniform float uGray;
+uniform float uAlpha; uniform vec3 uTint; uniform float uEmitAdd; uniform float uGray; uniform float uDetail;
+/* 雜訊改用 64x64 小貼圖查表（比 sin 雜湊快，也不受手機低精度浮點影響）：hash 需傳入整數格座標，vn 為雙線性插值的值雜訊 */
+float hash(vec2 p){ return texture2D(uTexH, (p+0.5)/64.0).r; }
+float vn(vec2 p){ return texture2D(uTexN, p/64.0).g; }
+/* 程序貼圖：依世界座標產生細節，完全不增加幾何量；回傳明暗倍率 */
+float pattern(float m, vec3 p, vec3 n, float fade){
+  bool top = abs(n.y) > 0.6;
+  vec2 q = top ? p.xz : vec2(abs(n.x) > abs(n.z) ? p.z : p.x, p.y);
+  float v = 1.0;
+  if (m < 1.5) {                       // 1 草地／泥土：大塊色斑＋細碎雜點
+    v = 0.74 + 0.36*vn(q*0.4) + 0.2*vn(q*1.7) + 0.12*(hash(floor(q*10.0))-0.5);
+  } else if (m < 2.5) {                // 2 柏油：顆粒＋髒污
+    v = 0.84 + 0.22*vn(q*0.3) + 0.2*(hash(floor(q*16.0))-0.5) - 0.08*step(0.72,vn(q*2.1));
+  } else if (m < 3.5) {                // 3 人行道方磚（0.9 公尺）
+    vec2 g = q/0.9, id = floor(g), f = fract(g);
+    float line = max(step(f.x,0.035), step(f.y,0.035));
+    v = (0.88 + 0.22*hash(id) + 0.07*(hash(floor(q*13.0))-0.5)) * (1.0 - 0.38*line);
+  } else if (m < 4.5) {                // 4 鵝卵石／石板（錯縫）
+    vec2 g = vec2(q.x/0.5, q.y/0.36); float row = floor(g.y); g.x += mod(row,2.0)*0.5;
+    vec2 id = floor(g), f = fract(g);
+    float edge = min(min(f.x,1.0-f.x)*0.9, min(f.y,1.0-f.y));
+    v = (0.8 + 0.34*hash(id)) * (0.62 + 0.38*smoothstep(0.02,0.14,edge)) + 0.05*(hash(floor(q*11.0))-0.5);
+  } else if (m < 5.5) {                // 5 木地板（沿 X 方向的木條，錯縫）
+    float pw = 0.2; float row = floor(q.y/pw); float off = hash(vec2(row,3.0))*1.7;
+    float col = floor((q.x+off)/1.5);
+    float line = step(fract(q.y/pw),0.07) + step(fract((q.x+off)/1.5),0.012);
+    v = (0.82 + 0.3*hash(vec2(row,col))) * (1.0 - 0.45*min(line,1.0));
+  } else if (m < 6.5) {                // 6 磚石牆（磚縫、磚面深淺）
+    vec2 g = vec2(q.x/0.52, q.y/0.26); float row = floor(g.y); g.x += mod(row,2.0)*0.5;
+    vec2 id = floor(g), f = fract(g);
+    float mortar = max(step(f.x,0.06), step(f.y,0.1));
+    v = (0.78 + 0.36*hash(id)) * (1.0 - 0.34*mortar);
+  } else if (m < 7.5) {                // 7 混凝土／灰泥：髒污、雨痕、板縫
+    float seam = max(step(fract(q.x/2.6),0.008), step(fract(q.y/3.2),0.008));
+    v = 0.84 + 0.22*vn(q*0.55) + 0.12*vn(q*2.3) + 0.06*(hash(floor(q*12.0))-0.5) - 0.10*seam;
+    if (!top) v -= 0.14*smoothstep(0.6,1.0,vn(vec2(q.x*2.2, q.y*0.12)));
+  } else if (m < 8.5) {                // 8 泥土小徑：碎石點
+    v = 0.76 + 0.3*vn(q*0.7) + 0.24*(hash(floor(q*9.0))-0.5) + 0.2*step(0.93,hash(floor(q*5.0)));
+  } else if (m < 9.5) {                // 9 屋瓦：橫向瓦列
+    float row = floor(p.y*3.4); float x = p.x+p.z;
+    v = (0.8 + 0.28*hash(vec2(row, floor((x+row*0.37)*2.0)))) * (1.0 - 0.28*step(fract(p.y*3.4),0.12));
+  } else if (m < 10.5) {               // 10 樹葉／樹籬：葉簇深淺
+    v = 0.72 + 0.4*vn(q*1.9) + 0.22*vn(q*5.5) + 0.1*(hash(floor(q*14.0))-0.5);
+  } else {                             // 11 樹皮：縱向裂紋
+    v = 0.74 + 0.4*hash(vec2(floor((p.x+p.z)*16.0), 1.0)) + 0.14*vn(vec2((p.x+p.z)*9.0, p.y*1.4));
+  }
+  return mix(v, 1.0, fade);
+}
 void main(){
   vec3 n=normalize(vNor);
   vec3 toP=vPos-uCam; float d=length(toP); vec3 L=toP/max(d,0.001);
@@ -69,6 +122,7 @@ void main(){
   float fl=cone*att*uFlash*nl;
   float pl=0.55/(1.0+0.9*d*d);
   vec3 base=vCol*uTint;
+  if (uDetail > 0.5 && vMat > 0.5 && d < 30.0) base *= pattern(vMat, vPos, n, smoothstep(9.0, 30.0, d));
   vec3 col=base*(vec3(uAmb)*hemi+vec3(sun)+vec3(fl)*vec3(1.0,0.93,0.78)+vec3(pl))+base*(vEm+uEmitAdd);
   float fog=clamp((d-uFogNear)/(uFogFar-uFogNear),0.0,1.0);
   col=mix(col,uFogCol,fog*fog*(3.0-2.0*fog));
@@ -96,14 +150,26 @@ class Renderer {
     gl.useProgram(p);
     this.prog = p;
     this.loc = {};
-    ['uVP', 'uM', 'uCam', 'uFwd', 'uAmb', 'uSun', 'uSunDir', 'uFlash', 'uCone', 'uFogCol', 'uFogNear', 'uFogFar', 'uAlpha', 'uTint', 'uEmitAdd', 'uGray']
+    ['uVP', 'uM', 'uCam', 'uFwd', 'uAmb', 'uSun', 'uSunDir', 'uFlash', 'uCone', 'uFogCol', 'uFogNear', 'uFogFar', 'uAlpha', 'uTint', 'uEmitAdd', 'uGray', 'uDetail', 'uTexH', 'uTexN']
       .forEach(n => { this.loc[n] = gl.getUniformLocation(p, n); });
-    this.attr = { aPos: gl.getAttribLocation(p, 'aPos'), aNor: gl.getAttribLocation(p, 'aNor'), aCol: gl.getAttribLocation(p, 'aCol'), aEm: gl.getAttribLocation(p, 'aEm') };
-    [this.attr.aPos, this.attr.aNor, this.attr.aCol, this.attr.aEm].forEach(a => gl.enableVertexAttribArray(a));
+    this.attr = { aPos: gl.getAttribLocation(p, 'aPos'), aNor: gl.getAttribLocation(p, 'aNor'), aCol: gl.getAttribLocation(p, 'aCol'), aEm: gl.getAttribLocation(p, 'aEm'), aMat: gl.getAttribLocation(p, 'aMat') };
+    [this.attr.aPos, this.attr.aNor, this.attr.aCol, this.attr.aEm, this.attr.aMat].forEach(a => gl.enableVertexAttribArray(a));
+    {   // 雜訊貼圖（固定亂數，每次外觀一致）
+      const N = 64, data = new Uint8Array(N * N * 4); let sd = 1234567;
+      for (let i = 0; i < data.length; i++) { sd = (Math.imul(sd, 1664525) + 1013904223) >>> 0; data[i] = sd >>> 24; }
+      const mkTex = (unit, filter) => {
+        const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, N, N, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      };
+      mkTex(0, gl.NEAREST); mkTex(1, gl.LINEAR);
+      gl.uniform1i(this.loc.uTexH, 0); gl.uniform1i(this.loc.uTexN, 1);
+    }
     gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     this.vp = M4.create(); this.proj = M4.create(); this.view = M4.create(); this.mM = M4.create();
-    this.scale = 1; this.drawDist = 60;
+    this.scale = 1; this.drawDist = 60; this.detail = 1;
     this.theme = { fog: [0.07, 0.09, 0.1], near: 8, far: 55, amb: 0.2, sun: 0.1, sunDir: [-0.4, 0.8, 0.3], flash: 1.0 };
     this.stats = { chunks: 0, dyn: 0 };
   }
@@ -137,14 +203,17 @@ class Renderer {
     for (const b of builder.boxes) {
       if (b.novis) continue;
       const c = get((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2);
+      PMAT = b.mat || 0;
       pushBox(c.arr, b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, b.col, b.emit, b.y0 <= 0.001);
       grow(c, b.x0, b.y0, b.z0, b.x1, b.y1, b.z1);
     }
     for (const p of builder.pyrs) {
       const c = get(p.cx, p.cz);
+      PMAT = p.mat || 0;
       pushPyr(c.arr, p.cx, p.y0, p.cz, p.w, p.d, p.h, p.col, p.emit);
       grow(c, p.cx - p.w / 2, p.y0, p.cz - p.d / 2, p.cx + p.w / 2, p.y0 + p.h, p.cz + p.d / 2);
     }
+    PMAT = 0;
     const chunks = [];
     for (const c of map.values()) {
       const m = this.makeMesh(c.arr);
@@ -176,7 +245,7 @@ class Renderer {
     gl.uniform2f(L.uCone, Math.cos(0.30), Math.cos(0.62));
     gl.uniform3f(L.uFogCol, th.fog[0], th.fog[1], th.fog[2]);
     gl.uniform1f(L.uFogNear, th.near); gl.uniform1f(L.uFogFar, th.far * this.fogScale());
-    gl.uniform1f(L.uAlpha, 1); gl.uniform3f(L.uTint, 1, 1, 1); gl.uniform1f(L.uEmitAdd, 0); gl.uniform1f(L.uGray, this.gray || 0);
+    gl.uniform1f(L.uAlpha, 1); gl.uniform3f(L.uTint, 1, 1, 1); gl.uniform1f(L.uEmitAdd, 0); gl.uniform1f(L.uGray, this.gray || 0); gl.uniform1f(L.uDetail, this.detail);
     M4.model(this.mM, 0, 0, 0, 0, 1, 1, 1);
     gl.uniformMatrix4fv(L.uM, false, this.mM);
     gl.disable(gl.BLEND);
@@ -190,6 +259,7 @@ class Renderer {
     gl.vertexAttribPointer(a.aNor, 3, gl.FLOAT, false, S, 12);
     gl.vertexAttribPointer(a.aCol, 3, gl.FLOAT, false, S, 24);
     gl.vertexAttribPointer(a.aEm, 1, gl.FLOAT, false, S, 36);
+    gl.vertexAttribPointer(a.aMat, 1, gl.FLOAT, false, S, 40);
   }
   /* 視錐＋距離剔除 */
   visible(cx, cy, cz, r) {
@@ -291,71 +361,15 @@ function buildModels(R) {
   });
   M.portalFrame = mk(a => { pushBox(a, -1.0, 0, -0.12, -0.8, 2.6, 0.12, [0.2, 0.2, 0.28], 0); pushBox(a, 0.8, 0, -0.12, 1.0, 2.6, 0.12, [0.2, 0.2, 0.28], 0); pushBox(a, -1.0, 2.6, -0.12, 1.0, 2.8, 0.12, [0.2, 0.2, 0.28], 0); });
   M.portalDisc = mk(a => { pushBox(a, -0.8, 0.05, -0.03, 0.8, 2.6, 0.03, [0.5, 0.35, 1.0], 1.0); });
-  // ===== 怪物：駝背、巨大、噁心（由約 150 個小方塊組成，分成可擺動的部件）=====
-  {
-    const fl = [0.36, 0.33, 0.30], dk = [0.2, 0.17, 0.16], red = [0.5, 0.07, 0.08], bone = [0.84, 0.8, 0.66], slime = [0.45, 0.95, 0.22], pale = [0.58, 0.5, 0.44];
-    const mon = {};
-    mon.body = mk(a => {
-      pushBox(a, -0.5, 0.85, -0.35, 0.5, 1.4, 0.4, dk, 0);                               // 骨盆
-      pushBox(a, -0.44, 0.92, -0.55, 0.44, 1.46, -0.33, pale, 0.14);                     // 腫脹蒼白的腹部
-      pushBox(a, -0.3, 1.06, -0.6, 0.3, 1.3, -0.54, [0.62, 0.16, 0.16], 0.32);            // 潰爛的腹口
-      pushBox(a, -0.12, 0.9, -0.62, 0.12, 1.08, -0.56, slime, 0.8);                      // 黏液囊
-      pushBox(a, -0.78, 1.4, -0.62, 0.78, 2.1, 0.36, fl, 0);                              // 寬厚的胸腔
-      pushBox(a, -0.62, 1.45, -0.68, 0.62, 2.02, -0.6, red, 0.1);                         // 剝開的肌肉
-      for (let i = 0; i < 5; i++) pushBox(a, -0.64, 1.5 + i * 0.11, -0.74, 0.64, 1.55 + i * 0.11, -0.66, bone, 0.06);   // 外露肋骨
-      for (const vx of [-0.45, -0.15, 0.2, 0.5]) pushBox(a, vx, 1.5, -0.7, vx + 0.025, 2.0, -0.66, [0.75, 0.1, 0.1], 0.45);   // 血管
-      pushBox(a, -0.46, 1.95, 0.0, 0.46, 2.52, 0.68, dk, 0);                              // 背上的駝峰
-      for (let i = 0; i < 6; i++) pushPyr(a, -0.34 + i * 0.136, 2.52, 0.3 + (i % 2) * 0.1, 0.13, 0.13, 0.38 + (i % 3) * 0.1, bone, 0);   // 脊刺
-      for (const sx of [-1, 1]) {
-        pushBox(a, sx * 0.72, 1.62, -0.22, sx * 1.02, 2.18, 0.22, [0.42, 0.36, 0.3], 0);  // 肩部腫瘤
-        pushBox(a, sx * 0.8, 2.14, -0.12, sx * 0.98, 2.34, 0.1, slime, 0.75);             // 發光膿包
-        pushBox(a, sx * 0.86, 1.7, -0.3, sx * 0.94, 1.9, -0.2, red, 0.3);                // 潰瘍
-      }
-      pushBox(a, -0.3, 0.55, -0.1, 0.3, 0.9, 0.3, dk, 0);                                 // 腰部
-    });
-    mon.head = mk(a => {      // 關節在頸部 (0,0,0)，頭向前（-Z）伸出
-      pushBox(a, -0.37, -0.05, -0.66, 0.37, 0.52, 0.12, [0.62, 0.6, 0.52], 0);          // 頭骨
-      pushBox(a, -0.4, 0.28, -0.72, 0.4, 0.4, -0.5, dk, 0);                               // 眉骨
-      for (const sx of [-1, 1]) pushBox(a, sx * 0.4, 0.04, -0.55, sx * 0.5, 0.3, -0.2, fl, 0);   // 臉頰腫塊
-      for (const sx of [-1, 1]) { pushBox(a, sx * 0.1, 0.3, -0.74, sx * 0.27, 0.46, -0.68, [1.0, 0.95, 0.15], 2.0); pushBox(a, sx * 0.14, 0.34, -0.752, sx * 0.2, 0.42, -0.738, [0.1, 0, 0], 0); }   // 大眼（黃綠發光，細瞳孔）
-      for (const [ex, ey] of [[0, 0.46], [-0.33, 0.14], [0.33, 0.14]]) pushBox(a, ex - 0.05, ey, -0.72, ex + 0.05, ey + 0.1, -0.68, [1.0, 0.4, 0.1], 1.8);   // 多餘的小眼
-      pushBox(a, -0.1, 0.1, -0.7, 0.1, 0.2, -0.66, [0.04, 0, 0], 0);                      // 鼻孔
-      for (let i = 0; i < 9; i++) pushPyrInv(a, -0.32 + i * 0.08, 0.0, -0.64, 0.07, 0.07, 0.17 + (i % 2) * 0.07, bone, 0.08);   // 上排尖牙
-      for (const sx of [-1, 1]) pushPyr(a, sx * 0.3, 0.52, -0.08, 0.14, 0.14, 0.55, bone, 0);   // 犄角
-      for (const sx of [-1, 1]) pushPyr(a, sx * 0.44, 0.1, -0.1, 0.1, 0.1, 0.3, dk, 0);
-    });
-    mon.jaw = mk(a => {       // 下顎，關節在 (0,0,0)
-      pushBox(a, -0.31, -0.2, -0.68, 0.31, -0.04, 0.0, [0.5, 0.46, 0.4], 0);
-      for (let i = 0; i < 8; i++) pushPyr(a, -0.27 + i * 0.077, -0.04, -0.64, 0.065, 0.065, 0.16 + (i % 2) * 0.07, bone, 0.08);   // 下排尖牙
-      pushBox(a, -0.08, -0.12, -0.7, 0.08, -0.06, -0.12, [0.7, 0.1, 0.15], 0.35);        // 舌頭
-      pushBox(a, -0.06, -0.5, -0.64, 0.06, -0.12, -0.56, [0.7, 0.1, 0.15], 0.35);         // 垂下的長舌
-    });
-    const arm = sx => mk(a => {   // 關節在肩膀 (0,0,0)，向下垂至接近地面
-      pushBox(a, -0.12, -0.88, -0.12, 0.12, 0.05, 0.12, fl, 0);                           // 上臂
-      pushBox(a, -0.15, -1.0, -0.15, 0.15, -0.82, 0.15, red, 0.12);                       // 肘部肉瘤
-      pushBox(a, -0.09, -1.66, -0.1, 0.09, -0.92, 0.1, dk, 0);                            // 前臂
-      pushBox(a, -0.15, -1.82, -0.17, 0.15, -1.62, 0.1, fl, 0);                           // 手掌
-      for (let i = 0; i < 4; i++) pushPyrInv(a, -0.11 + i * 0.073, -1.8, -0.06 + (i % 2) * 0.04, 0.06, 0.06, 0.34 + (i % 2) * 0.06, bone, 0.06);   // 爪
-      pushBox(a, sx * 0.1, -0.7, -0.08, sx * 0.13, -0.3, 0.08, red, 0.3);                  // 傷口
-    });
-    mon.armL = arm(-1); mon.armR = arm(1);
-    const leg = () => mk(a => {   // 關節在髖部 (0,0,0)
-      pushBox(a, -0.17, -0.62, -0.16, 0.17, 0.04, 0.16, fl, 0);
-      pushBox(a, -0.14, -0.72, -0.13, 0.14, -0.56, 0.22, dk, 0);
-      pushBox(a, -0.1, -0.96, 0.02, 0.1, -0.64, 0.22, dk, 0);
-      pushBox(a, -0.15, -0.96, -0.4, 0.15, -0.86, 0.16, fl, 0);
-      for (let i = 0; i < 3; i++) pushPyr(a, -0.09 + i * 0.09, -0.96, -0.46, 0.07, 0.12, 0.1, bone, 0);
-    });
-    mon.legL = leg(); mon.legR = leg();
-    mon.tend = [0, 1, 2, 3].map(k => mk(a => {   // 背上的觸手，向上延伸
-      let y = 0, w = 0.1;
-      for (let i = 0; i < 6; i++) { pushBox(a, -w / 2, y, -w / 2, w / 2, y + 0.3, w / 2, i % 2 ? red : dk, 0.1 + i * 0.04); y += 0.28; w *= 0.84; }
-      pushBox(a, -0.05, y, -0.05, 0.05, y + 0.1, 0.05, slime, 1.2);
-    }));
-    mon.drip = mk(a => pushBox(a, -0.025, -0.1, -0.025, 0.025, 0.04, 0.025, slime, 1.3));
-    mon.blob = mk(a => pushBox(a, -1.0, 0, -1.0, 1.0, 0.012, 1.0, [0.02, 0.02, 0.02], 0));
-    M.mon = mon;
-  }
+  M.monster = mk(a => {
+    const k = [0.06, 0.05, 0.07];
+    pushBox(a, -0.32, 0.9, -0.2, 0.32, 1.9, 0.2, k, 0);                      // 軀幹
+    pushBox(a, -0.26, 1.9, -0.24, 0.26, 2.4, 0.24, [0.1, 0.09, 0.11], 0);    // 頭
+    pushBox(a, -0.17, 2.1, -0.26, -0.07, 2.2, -0.24, [1, 0.15, 0.1], 1.4); pushBox(a, 0.07, 2.1, -0.26, 0.17, 2.2, -0.24, [1, 0.15, 0.1], 1.4); // 眼
+    pushBox(a, -0.62, 0.45, -0.12, -0.34, 1.85, 0.12, k, 0); pushBox(a, 0.34, 0.45, -0.12, 0.62, 1.85, 0.12, k, 0); // 長手臂
+    pushBox(a, -0.26, 0, -0.14, -0.04, 0.9, 0.14, k, 0); pushBox(a, 0.04, 0, -0.14, 0.26, 0.9, 0.14, k, 0);
+  });
+  M.blob = mk(a => pushBox(a, -1.0, 0, -1.0, 1.0, 0.012, 1.0, [0.02, 0.02, 0.02], 0));
   M.pBody = mk(a => { pushBox(a, -0.26, 0.8, -0.15, 0.26, 1.4, 0.15, W, 0.05); pushBox(a, -0.42, 0.85, -0.1, -0.26, 1.4, 0.1, W, 0.05); pushBox(a, 0.26, 0.85, -0.1, 0.42, 1.4, 0.1, W, 0.05); });
   M.pHead = mk(a => { pushBox(a, -0.18, 1.4, -0.18, 0.18, 1.76, 0.18, [0.86, 0.7, 0.58], 0.05); pushBox(a, -0.19, 1.62, -0.19, 0.19, 1.78, 0.19, [0.15, 0.1, 0.08], 0.0); });
   M.pLegs = mk(a => { pushBox(a, -0.22, 0, -0.1, -0.02, 0.8, 0.1, [0.15, 0.17, 0.25], 0); pushBox(a, 0.02, 0, -0.1, 0.22, 0.8, 0.1, [0.15, 0.17, 0.25], 0); });

@@ -7,7 +7,7 @@ const COLORS = [
   { id: 3, name: '黃', hex: '#f2c744', rgb: [0.95, 0.78, 0.27] },
 ];
 const SPEED = { walk: 3.6, run: 6.0, crouch: 1.8 };
-const MON = { patrol: 1.7, invest: 3.0, chase: 5.4, view: 20, fov: 0.42, seeNeeded: 2.0, giveUp: 4.0, catchR: 1.35, lureTime: 8.0, lureMax: 12.5 };
+const MON = { patrol: 1.7, invest: 3.0, chase: 5.4, view: 20, fov: 0.42, seeNeeded: 2.0, giveUp: 4.0, catchR: 1.6, lureTime: 8.0, lureMax: 12.5 };
 const ROUND_TIME = 1200;
 const F_CROUCH = 1, F_HIDDEN = 2, F_RUN = 4, F_MOVE = 8, F_GROUND = 16;
 
@@ -342,7 +342,7 @@ class Sim {
     // 抓人
     for (const p of this.players.values()) {
       if (p.st !== 'alive' || (p.flags & F_HIDDEN) || p.prot > 0) continue;
-      if (Math.hypot(p.x - m.x, p.z - m.z) < MON.catchR && p.y < m.y + 1.9 && p.y + 1.5 > m.y) this.caught(p);
+      if (Math.hypot(p.x - m.x, p.z - m.z) < MON.catchR && p.y < m.y + 2.4 && p.y + 1.5 > m.y) this.caught(p);
     }
   }
   caught(p) {
