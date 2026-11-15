@@ -102,9 +102,7 @@ function buildCity() {
   });
   // 垃圾箱（可藏）
   [[-16, -8], [16, 8], [-8, 16], [8, -16], [-46, 8], [46, -8], [-16, 20], [20, -20]].forEach((p, i) => {
-    b.boxC(p[0], 0, p[1], 2.0, 1.4, 1.1, '#2e5a3a', true, 0.10);
-    b.boxC(p[0], 1.4, p[1], 2.1, 0.08, 1.2, '#244a30', false);
-    addHide(b, 'dumpster', p[0], 0, p[1], p[0], p[1] + 1.6, 0);
+    mkDumpster(b, p[0], p[1]);
     if (i % 2 === 0) b.spots.code.push({ x: p[0] + 1.3, y: 0.03, z: p[1], hint: '垃圾箱旁' });
   });
   // 貨櫃堆（高度）：一個可爬上的貨櫃
@@ -161,13 +159,13 @@ function buildCastle() {
   b.boxC(-22, 0, 8, 2.2, 1.0, 2.2, '#5a5a58'); b.boxC(-22, 1.0, 8, 1.3, 0.1, 1.3, '#101418', false);
   b.spots.code.push({ x: -22, y: 0.03, z: 9.4, hint: '水井旁' });
   // 乾草（可藏）、推車
-  [[-26, 18], [24, -8], [-8, 24], [18, 14]].forEach((p, i) => {
-    b.boxC(p[0], 0, p[1], 1.8, 1.4, 1.4, '#8a7a3a', true, 0.10); addHide(b, 'hay', p[0], 0, p[1], p[0], p[1] + 1.7, 0);
+  [[-26, 18], [24, -8], [-8, 24], [-14, 10]].forEach((p, i) => {
+    mkHay(b, p[0], p[1]);
     if (i % 2) b.spots.code.push({ x: p[0] + 1.3, y: 0.03, z: p[1], hint: '乾草旁' });
   });
   [[-12, 14], [10, 6], [-24, -2], [30, 0]].forEach(p => { b.boxC(p[0], 0.4, p[1], 2.0, 0.6, 1.2, '#4a3424'); b.boxC(p[0] - 0.9, 0, p[1], 0.7, 0.7, 0.1, '#222', false); b.spots.code.push({ x: p[0], y: 0.03, z: p[1] + 1.0, hint: '推車下' }); });
-  // 地牢迷宮 x∈[6,30] z∈[8,32]（頂部有天花板）
-  const dz = mazeGen(b, { ox: 6, oz: 8, cols: 6, rows: 6, cell: 4, th: 0.8, h: 3.0, col: '#4a4846', entrances: [{ side: 'w', idx: 2 }, { side: 'n', idx: 1 }], ceiling: { y0: 3.0, y1: 3.4, col: '#2c2a28' } });
+  // 地牢迷宮 x∈[6,22] z∈[8,32]（頂部有天花板；避開東南角塔）
+  const dz = mazeGen(b, { ox: 6, oz: 8, cols: 4, rows: 6, cell: 4, th: 0.8, h: 3.0, col: '#4a4846', entrances: [{ side: 'w', idx: 2 }, { side: 'n', idx: 1 }], ceiling: { y0: 3.0, y1: 3.4, col: '#2c2a28' } });
   dz.dead.forEach((d, i) => {
     const k = i % 4;
     if (k === 0 || k === 1) b.spots.code.push({ x: d.x + (b.rng() - 0.5) * 1.2, y: 0.03, z: d.z + (b.rng() - 0.5) * 1.2, hint: '地牢死路' });
@@ -177,7 +175,7 @@ function buildCastle() {
   });
   b.spots.patrol.push([dz.center.x, 0, dz.center.z]);
   // 棺木／牢籠（可藏）
-  [[8, 10], [28, 30]].forEach(p => { b.boxC(p[0] + 1, 0, p[1] + 1, 1.0, 0.8, 2.0, '#3a2a20', true, 0.10); addHide(b, 'coffin', p[0] + 1, 0, p[1] + 1, p[0] + 1, p[1] - 0.2, 0); });
+  [[8, 10], [16, 26]].forEach(p => { mkCoffin(b, p[0] + 1, p[1] + 1); });
   // 戶外樹木與石頭
   const avoid = [[-36, -36, 36, 36]];
   const forest = scatter(b, 110, b.bounds, 4.5, avoid, (x, z) => tree(b, x, z, 0.9 + b.rng() * 0.5, { leaf1: '#2a3a22', leaf2: '#34452a', trunk: '#2a1e16' }));
@@ -187,7 +185,7 @@ function buildCastle() {
   mound(b, 44, 0, 14, 14, 3, '#3a4430'); b.spots.ped.push({ x: 44, y: 1.35, z: 0 });
   // 火把（城門）
   [[-5, 31], [5, 31]].forEach(p => lamp(b, p[0], p[1], 2.8, '#ff9a48'));
-  [[-8, 20], [8, 20], [-26, -10], [26, -16]].forEach(p => lamp(b, p[0], p[1], 2.6, '#ff9a48'));
+  [[-8, 20], [3, 20], [-26, -10], [26, -16]].forEach(p => lamp(b, p[0], p[1], 2.6, '#ff9a48'));
   // 出生點／巡邏
   [[0, 0, 44], [-20, 0, 46], [20, 0, 46], [-46, 0, 0], [46, 0, 20], [0, 0, 16], [-20, 0, 16], [-40, 0, -46], [40, 0, -46], [-46, 0, 40], [46, 0, -30], [0, 0, 22]].forEach(p => b.spots.spawn.push(p));
   [[0, 0, 44], [0, 0, 22], [-20, 0, 16], [-46, 0, 0], [46, 0, 20], [0, 0, -46], [-40, 0, -46], [40, 0, 46], [-24, 0, -4]].forEach(p => b.spots.patrol.push(p));

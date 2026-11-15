@@ -42,9 +42,9 @@ const ok = (c, m) => { if (!c) { fails++; console.log('  ✗ FAIL', m); } else c
   const st = () => page.evaluate(() => { const G = window.__HC.G; return { items: G.me.items.slice(), notes: Object.assign({}, G.notes), inter: G.inter && G.inter.type + ':' + G.inter.idx, st: G.me.st, lives: G.me.lives, kp: !!G.keypad, ended: G.ended, locks: G.locks.map(l => l.open) }; });
 
   // 1) 找密碼條（顏色 0）
-  const cInfo = await page.evaluate(() => { const G = window.__HC.G, b = G.bundle.b, s = b.spots.code[G.codes[0].spot]; return { x: s.x, y: s.y, z: s.z, hint: s.hint }; });
+  const cInfo = await page.evaluate(() => { const G = window.__HC.G, v = G.codeViews[0], s = G.bundle.b.spots.code[G.codes[0].spot]; return { x: v.px, y: v.y, z: v.pz, hint: s.hint, val: G.codeVals[0] }; });
   console.log('   紅色密碼位置', JSON.stringify(cInfo));
-  const stood = await page.evaluate(c => window.standLook(c.x, c.y + 0.05, c.z), cInfo);
+  const stood = await page.evaluate(c => window.standLook(c.x, c.y, c.z, 1.2, 3.6), cInfo);
   ok(stood, '可站到密碼條附近（有視線）');
   await page.waitForTimeout(250);
   let s = await st();
@@ -52,7 +52,7 @@ const ok = (c, m) => { if (!c) { fails++; console.log('  ✗ FAIL', m); } else c
   await page.screenshot({ path: `${OUT}/p${map}_1_code.png` });
   await page.keyboard.press('KeyE'); await page.waitForTimeout(250);
   s = await st();
-  ok(s.notes[0] && /^\d{4}$/.test(s.notes[0]), '按 E 檢查 → 取得紅色密碼 ' + s.notes[0]);
+  ok(s.notes[0] && /^\d{4}$/.test(s.notes[0]) && s.notes[0] === cInfo.val, '按 E 記下告示牌上的密碼 ' + s.notes[0] + '（與牆上顯示的數字相同）');
 
   // 2) 找鎖並輸入密碼
   const lInfo = await page.evaluate(() => { const G = window.__HC.G, b = G.bundle.b, s = b.spots.lock[G.locks[0].spot]; return { x: s.x, y: s.y + 0.5, z: s.z }; });
@@ -97,8 +97,8 @@ const ok = (c, m) => { if (!c) { fails++; console.log('  ✗ FAIL', m); } else c
   await page.waitForFunction(() => window.__HC.G.mode === 'play' && window.__HC.G.me.st === 'alive', null, { timeout: 60000 });
   await page.evaluate(() => { const G = window.__HC.G; G.countdown = 0; G.simDelay = 0; G.sim.mon.cool = 1e9; });
   // 先取得密碼並解鎖紅鎖，再讓怪物抓住
-  const c2 = await page.evaluate(() => { const G = window.__HC.G, b = G.bundle.b; const s = b.spots.code[G.codes[0].spot], l = b.spots.lock[G.locks[0].spot]; return { s: { x: s.x, y: s.y, z: s.z }, l: { x: l.x, y: l.y, z: l.z } }; });
-  await page.evaluate(c => { window.standLook(c.s.x, c.s.y + 0.05, c.s.z); }, c2);
+  const c2 = await page.evaluate(() => { const G = window.__HC.G, b = G.bundle.b; const v = G.codeViews[0], l = b.spots.lock[G.locks[0].spot]; return { s: { x: v.px, y: v.y, z: v.pz }, l: { x: l.x, y: l.y, z: l.z } }; });
+  await page.evaluate(c => { window.standLook(c.s.x, c.s.y, c.s.z, 1.2, 3.6); }, c2);
   await page.waitForTimeout(250); await page.keyboard.press('KeyE'); await page.waitForTimeout(250);
   const oldSpot = await page.evaluate(() => window.__HC.G.codes[0].spot);
   await page.evaluate(c => { window.standLook(c.l.x, c.l.y + 0.5, c.l.z, 1.0, 2.2); }, c2);

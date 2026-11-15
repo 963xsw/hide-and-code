@@ -383,6 +383,10 @@ class Builder {
       col: [c[0] * j, c[1] * j, c[2] * j], solid, emit,
     });
   }
+  /* 只有碰撞、不繪製的方塊（讓外觀可以用多個小方塊拼得更細緻） */
+  colBox(x0, y0, z0, x1, y1, z1) {
+    this.boxes.push({ x0: Math.min(x0, x1), y0: Math.min(y0, y1), z0: Math.min(z0, z1), x1: Math.max(x0, x1), y1: Math.max(y0, y1), z1: Math.max(z0, z1), col: [0, 0, 0], solid: true, emit: 0, novis: true });
+  }
   boxC(cx, y0, cz, w, h, d, col, solid = true, emit = 0) {
     this.box(cx - w / 2, y0, cz - d / 2, cx + w / 2, y0 + h, cz + d / 2, col, solid, emit);
   }
@@ -392,7 +396,7 @@ class Builder {
     this.pyrs.push({ cx, y0, cz, w, d, h, col: [c[0] * j, c[1] * j, c[2] * j], emit });
   }
   /* 沿軸向的牆（含門／窗開口）。gaps: {a,b,y0,y1} 皆為相對牆底的高度與沿牆座標 */
-  wall(x0, z0, x1, z1, yb, yt, th, col, gaps) {
+  wall(x0, z0, x1, z1, yb, yt, th, col, gaps, frame) {
     const alongX = Math.abs(z1 - z0) < 1e-6;
     const a0 = alongX ? Math.min(x0, x1) : Math.min(z0, z1);
     const a1 = alongX ? Math.max(x0, x1) : Math.max(z0, z1);
@@ -413,6 +417,21 @@ class Builder {
       cur = gb;
     }
     put(cur, a1, yb, yt);
+    if (frame) {          // 門框／窗框（不可碰撞的裝飾）
+      const P = 0.07, E = 0.03;
+      for (const g of gs) {
+        const ga = Math.max(g.a, a0), gb = Math.min(g.b, a1);
+        const gy0 = yb + (g.y0 || 0), gy1 = yb + (g.y1 === undefined ? 2.4 : g.y1);
+        const fb = (sa, ea, ya, yb2, ex) => {
+          const e0 = ex || 0;
+          if (alongX) this.box(sa, ya, fixed - th / 2 - E - e0, ea, yb2, fixed + th / 2 + E + e0, frame, false);
+          else this.box(fixed - th / 2 - E - e0, ya, sa, fixed + th / 2 + E + e0, yb2, ea, frame, false);
+        };
+        fb(ga - P, ga, gy0, gy1); fb(gb, gb + P, gy0, gy1);
+        fb(ga - P, gb + P, gy1, gy1 + 0.09);
+        if ((g.y0 || 0) > 0) fb(ga - P, gb + P, gy0 - 0.06, gy0, 0.06);
+      }
+    }
   }
 }
 
@@ -756,10 +775,128 @@ function addStairs(b, o, k, col) {
 /* ---------- 家具與藏匿／解謎點 ---------- */
 function addHide(b, kind, x, y, z, ex, ez, yaw) { b.spots.hide.push({ kind, x, y, z, ex, ez, yaw }); }
 
+/* ----- 精緻家具：全部由少量方塊拼成，維持流暢度 ----- */
+function mkWardrobe(b, x, y, z, iz, P) {
+  const zc = z + iz * 0.4, zf = zc + iz * 0.37;
+  b.boxC(x, y + 0.1, zc, 1.3, 1.95, 0.7, P.wood);
+  b.boxC(x, y, zc, 1.38, 0.12, 0.78, P.dark, false);
+  b.boxC(x, y + 2.05, zc, 1.44, 0.1, 0.82, P.dark, false);
+  b.boxC(x, y + 2.15, zc, 1.2, 0.07, 0.62, P.dark, false);
+  b.boxC(x - 0.31, y + 0.17, zf, 0.58, 1.82, 0.03, P.door, false, 0.07);
+  b.boxC(x + 0.31, y + 0.17, zf, 0.58, 1.82, 0.03, P.door, false, 0.07);
+  b.boxC(x, y + 0.17, zf + iz * 0.005, 0.035, 1.82, 0.04, '#140e0a', false);
+  for (const sx of [-0.31, 0.31]) {
+    b.boxC(x + sx, y + 0.35, zf + iz * 0.02, 0.4, 0.55, 0.02, P.door2, false, 0.05);
+    b.boxC(x + sx, y + 1.1, zf + iz * 0.02, 0.4, 0.8, 0.02, P.door2, false, 0.05);
+  }
+  b.boxC(x - 0.09, y + 1.0, zf + iz * 0.035, 0.035, 0.16, 0.035, P.brass, false, 0.35);
+  b.boxC(x + 0.09, y + 1.0, zf + iz * 0.035, 0.035, 0.16, 0.035, P.brass, false, 0.35);
+}
+function mkBed(b, x, y, z, iz, P) {
+  const zc = z + iz * 1.0;
+  b.colBox(x - 0.55, y, zc - 1.0, x + 0.55, y + 0.62, zc + 1.0);
+  for (const sx of [-0.48, 0.48]) for (const sz of [-0.94, 0.94]) b.boxC(x + sx, y, zc + sz, 0.09, 0.22, 0.09, P.dark, false);
+  b.boxC(x, y + 0.2, zc, 1.04, 0.14, 2.0, P.wood, false);
+  b.boxC(x, y + 0.34, zc, 0.94, 0.2, 1.9, P.mattress, false);
+  b.boxC(x, y + 0.44, zc + iz * 0.42, 0.98, 0.1, 1.15, P.cloth, false, 0.04);
+  b.boxC(x, y + 0.54, z + iz * 0.3, 0.62, 0.11, 0.34, P.pillow, false);
+  b.boxC(x, y + 0.1, z + iz * 0.05, 1.1, 1.0, 0.08, P.wood, false);
+  b.boxC(x, y + 0.1, z + iz * 1.96, 1.1, 0.5, 0.07, P.wood, false);
+}
+function mkCrate(b, x, y, z, P) {
+  b.boxC(x, y, z, 0.95, 0.95, 0.95, P.crate);
+  b.boxC(x, y + 0.93, z, 1.02, 0.06, 1.02, P.dark, false);
+  for (const sx of [-0.46, 0.46]) for (const sz of [-0.46, 0.46]) b.boxC(x + sx, y, z + sz, 0.07, 0.95, 0.07, P.dark, false);
+  b.boxC(x, y + 0.3, z, 0.99, 0.05, 0.99, P.dark, false);
+  b.boxC(x, y + 0.64, z, 0.99, 0.05, 0.99, P.dark, false);
+}
+function mkShelf(b, x, y, z, iz, P) {
+  b.boxC(x, y, z + iz * 0.25, 1.4, 1.9, 0.4, P.wood);
+  b.boxC(x, y + 1.9, z + iz * 0.25, 1.5, 0.06, 0.46, P.dark, false);
+  const cols = ['#7a3a3a', '#3a5a7a', '#5a7a3a', '#8a6a2a', '#5a3a6a', '#aaa090'];
+  for (const sy of [0.42, 1.12, 1.62]) {
+    b.boxC(x, y + sy - 0.03, z + iz * 0.4, 1.34, 0.04, 0.24, P.dark, false);
+    let bx = -0.6;
+    while (bx < 0.55) {
+      const w = 0.07 + b.rng() * 0.05, h = 0.2 + b.rng() * 0.12;
+      b.boxC(x + bx + w / 2, y + sy, z + iz * 0.4, w, h, 0.2, rpick(b.rng, cols), false);
+      bx += w + 0.012;
+    }
+  }
+}
+function mkTable(b, x, y, z, P) {
+  b.boxC(x, y + 0.75, z, 1.4, 0.08, 0.9, P.wood, false);
+  b.boxC(x, y + 0.68, z, 1.3, 0.07, 0.8, P.dark, false);
+  for (const dx of [-0.6, 0.6]) for (const dz of [-0.35, 0.35]) b.boxC(x + dx, y, z + dz, 0.08, 0.75, 0.08, P.wood, false);
+  b.boxC(x - 0.3, y + 0.83, z + 0.1, 0.12, 0.16, 0.12, '#9ab', false, 0.12);   // 小瓶子
+}
+function mkDumpster(b, x, z) {
+  b.colBox(x - 1.0, 0, z - 0.55, x + 1.0, 1.4, z + 0.55);
+  b.boxC(x, 0.22, z, 1.9, 1.0, 1.0, '#2e5a3a', false, 0.10);
+  b.boxC(x, 1.2, z, 2.04, 0.1, 1.12, '#244a30', false);
+  b.boxC(x - 0.5, 1.3, z, 0.98, 0.08, 1.12, '#1e3e28', false);
+  b.boxC(x + 0.5, 1.36, z, 0.98, 0.08, 1.12, '#1e3e28', false);
+  for (const xs of [-0.65, 0, 0.65]) for (const zs of [-0.52, 0.52]) b.boxC(x + xs, 0.24, z + zs, 0.1, 0.95, 0.04, '#244a30', false);
+  for (const xs of [-0.8, 0.8]) for (const zs of [-0.4, 0.4]) b.boxC(x + xs, 0, z + zs, 0.16, 0.22, 0.16, '#101214', false);
+  b.boxC(x, 0.7, z + 0.53, 0.7, 0.16, 0.02, '#8a8a7c', false);
+  b.boxC(x, 1.0, z - 0.58, 1.5, 0.05, 0.05, '#111', false);
+  addHide(b, 'dumpster', x, 0, z, x, z + 1.6, 0);
+}
+function mkHay(b, x, z) {
+  b.colBox(x - 0.9, 0, z - 0.7, x + 0.9, 1.4, z + 0.7);
+  b.boxC(x, 0, z, 1.8, 0.7, 1.4, '#b49a45', false, 0.10);
+  b.boxC(x - 0.1, 0.7, z, 1.4, 0.7, 1.2, '#a98e3a', false, 0.10);
+  for (const sx of [-0.5, 0.5]) b.boxC(x + sx, 0, z, 0.05, 0.72, 1.42, '#5a4a22', false);
+  for (const sx of [-0.4, 0.3]) b.boxC(x - 0.1 + sx, 0.7, z, 0.05, 0.72, 1.22, '#5a4a22', false);
+  for (let i = 0; i < 5; i++) b.pyr(x + (b.rng() - 0.5) * 1.5, 0.6 + b.rng() * 0.6, z + (b.rng() - 0.5) * 1.1, 0.25, 0.25, 0.35, '#d0b858', 0.08);
+  addHide(b, 'hay', x, 0, z, x, z + 1.7, 0);
+}
+function mkCoffin(b, x, z) {
+  b.colBox(x - 0.5, 0, z - 1.0, x + 0.5, 0.85, z + 1.0);
+  b.boxC(x, 0, z - 0.2, 1.0, 0.7, 1.1, '#3a2a20', false, 0.08);
+  b.boxC(x, 0, z - 0.8, 0.62, 0.7, 0.45, '#3a2a20', false, 0.08);
+  b.boxC(x, 0, z + 0.65, 0.66, 0.7, 0.7, '#3a2a20', false, 0.08);
+  b.boxC(x, 0.7, z - 0.2, 1.08, 0.1, 1.18, '#4a3426', false, 0.08);
+  b.boxC(x, 0.7, z - 0.8, 0.7, 0.1, 0.52, '#4a3426', false, 0.08);
+  b.boxC(x, 0.7, z + 0.65, 0.74, 0.1, 0.76, '#4a3426', false, 0.08);
+  b.boxC(x, 0.8, z - 0.1, 0.07, 0.03, 0.9, '#c9b27a', false, 0.35);
+  b.boxC(x, 0.8, z - 0.3, 0.5, 0.03, 0.07, '#c9b27a', false, 0.35);
+  addHide(b, 'coffin', x, 0, z, x, z - 1.2, 0);
+}
+function mkTank(b, x, y, z) {
+  b.colBox(x - 1.2, y, z - 1.2, x + 1.2, y + 2.2, z + 1.2);
+  for (const sx of [-1.0, 1.0]) for (const sz of [-1.0, 1.0]) b.boxC(x + sx, y, z + sz, 0.14, 0.75, 0.14, '#2a2e30', false);
+  b.boxC(x, y + 0.7, z, 2.3, 1.5, 2.3, '#4a5558', false, 0.06);
+  b.boxC(x, y + 1.0, z, 2.42, 0.08, 2.42, '#2a3234', false);
+  b.boxC(x, y + 1.7, z, 2.42, 0.08, 2.42, '#2a3234', false);
+  b.pyr(x, y + 2.2, z, 2.5, 2.5, 0.7, '#2a3234');
+  b.boxC(x + 1.2, y, z - 0.9, 0.06, 2.0, 0.06, '#222', false); b.boxC(x + 1.2, y, z - 0.5, 0.06, 2.0, 0.06, '#222', false);
+  for (let k = 0; k < 6; k++) b.boxC(x + 1.2, y + 0.3 + k * 0.3, z - 0.7, 0.05, 0.04, 0.4, '#222', false);
+  addHide(b, 'tank', x, y, z, x, z + 2.2, 0);
+}
+
 function furnishRoom(b, R, yb, pal, opt) {
-  // R: {ax0,az0,ax1,az1, backZ, backIn, frontZ, frontIn, doorX}
+  // R: {ax0,ax1, backZ, backIn, frontZ, frontIn, doorX}
   const rng = b.rng;
-  const cxm = (R.ax0 + R.ax1) / 2;
+  const P = Object.assign({ dark: '#2e2016', door: '#6e4d32', door2: '#7d5a3c', brass: '#c9a14a', mattress: '#cfc8b8', pillow: '#e8e0d0' }, pal);
+  const cxm = (R.ax0 + R.ax1) / 2, czm = (R.backZ + R.frontZ) / 2;
+  // 地毯
+  {
+    const rw = Math.min(3.4, R.ax1 - R.ax0 - 2.8), rd = Math.min(2.4, Math.abs(R.frontZ - R.backZ) - 2.6);
+    if (rw > 1.2 && rd > 1.0) {
+      const ry = yb === 0 ? 0.045 : yb + 0.006;
+      const c1 = rpick(rng, ['#5a2a2a', '#2a3a4a', '#3a4a2a', '#4a3a2a', '#4a2a4a']);
+      b.boxC(cxm, ry, czm, rw, 0.012, rd, c1, false);
+      b.boxC(cxm, ry + 0.012, czm, rw * 0.84, 0.01, rd * 0.78, '#8a7a5a', false);
+      b.boxC(cxm, ry + 0.022, czm, rw * 0.7, 0.01, rd * 0.62, c1, false);
+    }
+  }
+  // 牆上畫作
+  if (rng() < 0.75) {
+    const px = R.ax0 + 1.5 + rng() * Math.max(0.5, R.ax1 - R.ax0 - 3.0), pz = R.backZ + R.backIn * 0.06;
+    b.boxC(px, yb + 1.45, pz, 0.92, 0.64, 0.05, '#2a1e12', false);
+    b.boxC(px, yb + 1.5, pz + R.backIn * 0.03, 0.78, 0.5, 0.04, rpick(rng, ['#3a5a6a', '#6a4a3a', '#4a5a3a', '#5a4a6a', '#6a6a4a']), false, 0.03);
+  }
   const corners = shuffle(rng, [
     { x: R.ax0 + 0.8, z: R.backZ, iz: R.backIn, wall: 'back' },
     { x: R.ax1 - 0.8, z: R.backZ, iz: R.backIn, wall: 'back' },
@@ -774,42 +911,30 @@ function furnishRoom(b, R, yb, pal, opt) {
   kinds.push(rng() < 0.45 ? 'ped' : (rng() < 0.5 ? 'frog' : 'crate'));
   corners.forEach((c, i) => {
     const kind = kinds[i];
-    const towardC = c.x < cxm ? 1 : -1;       // 朝房間中央的 x 方向
-    const zc = c.z + c.iz * 0.5;              // 家具中心 z（貼牆）
+    const towardC = c.x < cxm ? 1 : -1;
     switch (kind) {
-      case 'wardrobe': {
-        b.boxC(c.x, yb, c.z + c.iz * 0.4, 1.3, 2.1, 0.7, pal.wood);
-        b.boxC(c.x, yb + 0.1, c.z + c.iz * 0.78, 1.1, 1.9, 0.04, pal.hide, false, 0.12);
+      case 'wardrobe':
+        mkWardrobe(b, c.x, yb, c.z, c.iz, P);
         addHide(b, 'wardrobe', c.x, yb, c.z + c.iz * 0.4, c.x, c.z + c.iz * 1.5, c.iz > 0 ? Math.PI : 0);
-        b.spots.code.push({ x: c.x, y: yb + 2.1, z: c.z + c.iz * 0.4, hint: '衣櫃頂' });
+        b.spots.code.push({ x: c.x, y: yb + 2.3, z: c.z + c.iz * 0.4, hint: '衣櫃頂' });
         break;
-      }
-      case 'bed': {
-        b.boxC(c.x, yb, c.z + c.iz * 1.0, 1.0, 0.5, 2.0, pal.wood);
-        b.boxC(c.x, yb + 0.5, c.z + c.iz * 1.1, 0.9, 0.18, 1.8, pal.cloth);
+      case 'bed':
+        mkBed(b, c.x, yb, c.z, c.iz, P);
         addHide(b, 'bed', c.x, yb, c.z + c.iz * 1.0, c.x + towardC * 1.3, c.z + c.iz * 1.0, 0);
-        b.spots.code.push({ x: c.x + towardC * 0.7, y: yb + 0.04, z: c.z + c.iz * 0.35, hint: '床邊地面' });
+        b.spots.code.push({ x: c.x + towardC * 0.75, y: yb + 0.04, z: c.z + c.iz * 0.35, hint: '床邊地面' });
         break;
-      }
-      case 'shelf': {
-        b.boxC(c.x, yb, c.z + c.iz * 0.25, 1.4, 1.9, 0.4, pal.wood);
-        b.boxC(c.x, yb + 0.4, c.z + c.iz * 0.47, 1.3, 0.05, 0.05, pal.trim, false);
-        b.boxC(c.x, yb + 1.1, c.z + c.iz * 0.47, 1.3, 0.05, 0.05, pal.trim, false);
-        b.spots.code.push({ x: c.x + (rng() - 0.5) * 0.8, y: yb + 1.12, z: c.z + c.iz * 0.5, hint: '書架' });
+      case 'shelf':
+        mkShelf(b, c.x, yb, c.z, c.iz, P);
+        b.spots.code.push({ x: c.x + (rng() - 0.5) * 0.6, y: yb + 1.2, z: c.z + c.iz * 0.5, hint: '書架' });
         break;
-      }
-      case 'crate': {
-        b.boxC(c.x, yb, c.z + c.iz * 0.5, 0.95, 0.95, 0.95, pal.crate);
-        b.boxC(c.x, yb + 0.95, c.z + c.iz * 0.5, 0.98, 0.04, 0.98, pal.trim, false);
-        if (rng() < 0.6) b.spots.code.push({ x: c.x + towardC * 0.85, y: yb + 0.03, z: c.z + c.iz * 0.35, hint: '木箱後' });
+      case 'crate':
+        mkCrate(b, c.x, yb, c.z + c.iz * 0.5, P);
+        if (rng() < 0.6) b.spots.code.push({ x: c.x + towardC * 0.85, y: yb + 0.03, z: c.z + c.iz * 0.35, hint: '木箱旁' });
         break;
-      }
-      case 'table': {
-        b.boxC(c.x, yb + 0.75, c.z + c.iz * 0.6, 1.4, 0.08, 0.9, pal.wood);
-        for (const dx of [-0.6, 0.6]) for (const dz of [-0.35, 0.35]) b.boxC(c.x + dx, yb, c.z + c.iz * 0.6 + dz, 0.08, 0.75, 0.08, pal.wood);
+      case 'table':
+        mkTable(b, c.x, yb, c.z + c.iz * 0.6, P);
         b.spots.code.push({ x: c.x, y: yb + 0.04, z: c.z + c.iz * 0.6, hint: '桌下' });
         break;
-      }
       case 'lock': b.spots.lock.push({ x: c.x, y: yb, z: c.z + c.iz * 0.35, yaw: c.iz > 0 ? 0 : Math.PI }); break;
       case 'ped': b.spots.ped.push({ x: c.x, y: yb, z: c.z + c.iz * 0.6 }); break;
       case 'frog': b.spots.frog.push({ x: c.x + towardC * 0.4, y: yb + 0.02, z: c.z + c.iz * 0.2 }); break;
@@ -825,6 +950,7 @@ function building(b, o) {
   const cw = 3.2, zc0 = cz - cw / 2, zc1 = cz + cw / 2;
   const pal = Object.assign({ wall: '#6a6258', floor: '#3b322b', ceil: '#2c2724', wood: '#5a3f2a', crate: '#6b5236', trim: '#2a2320', cloth: '#7a4a4a', hide: '#9a7a45', stair: '#4a3f36', roofCol: '#2a2230' }, o.pal || {});
   const hallOnly = !!o.hallOnly;
+  const FR = pal.frame || '#241c16';
   const rx0 = x0 + o.hallW, rw = hallOnly ? 0 : (x1 - rx0) / o.rooms;
   const flights = o.roof === 'access' ? floors : floors - 1;
   const roofHole = o.roof === 'access' ? flightInfo(o, floors - 1).hole : null;
@@ -865,18 +991,18 @@ function building(b, o) {
       for (let i = arr.length - 1; i >= 0; i--) if (Math.abs((arr[i].a + arr[i].b) / 2 - c) < 2.4) arr.splice(i, 1);
       arr.push(doorGap(c, d.w || DOORW));
     }
-    b.wall(x0, z0, x1, z0, yb, yt, WT, pal.wall, gN);
-    b.wall(x0, z1, x1, z1, yb, yt, WT, pal.wall, gS);
-    b.wall(x0, z0, x0, z1, yb, yt, WT, pal.wall, gW);
-    b.wall(x1, z0, x1, z1, yb, yt, WT, pal.wall, gE);
+    b.wall(x0, z0, x1, z0, yb, yt, WT, pal.wall, gN, FR);
+    b.wall(x0, z1, x1, z1, yb, yt, WT, pal.wall, gS, FR);
+    b.wall(x0, z0, x0, z1, yb, yt, WT, pal.wall, gW, FR);
+    b.wall(x1, z0, x1, z1, yb, yt, WT, pal.wall, gE, FR);
     // 大廳與走廊
     if (!hallOnly) {
-      b.wall(rx0, z0, rx0, z1, yb, yt, WT, pal.wall, [doorGap(cz)]);
+      b.wall(rx0, z0, rx0, z1, yb, yt, WT, pal.wall, [doorGap(cz)], FR);
       // 走廊兩側牆（每個房間一個門）
       const gaps = [];
       for (let i = 0; i < o.rooms; i++) gaps.push(doorGap(rx0 + (i + 0.5) * rw));
-      b.wall(rx0, zc0, x1, zc0, yb, yt, WT, pal.wall, gaps);
-      b.wall(rx0, zc1, x1, zc1, yb, yt, WT, pal.wall, gaps);
+      b.wall(rx0, zc0, x1, zc0, yb, yt, WT, pal.wall, gaps, FR);
+      b.wall(rx0, zc1, x1, zc1, yb, yt, WT, pal.wall, gaps, FR);
       for (let i = 1; i < o.rooms; i++) {
         const px = rx0 + i * rw;
         b.wall(px, z0, px, zc0, yb, yt, WT, pal.wall, []);
@@ -888,6 +1014,11 @@ function building(b, o) {
         const dx = rx0 + (i + 0.5) * rw;
         furnishRoom(b, { ax0, ax1, backZ: z0 + WT / 2, backIn: 1, frontZ: zc0 - WT / 2, frontIn: -1, doorX: dx }, yb, pal, o);
         furnishRoom(b, { ax0, ax1, backZ: z1 - WT / 2, backIn: -1, frontZ: zc1 + WT / 2, frontIn: 1, doorX: dx }, yb, pal, o);
+      }
+      for (let i = 1; i < o.rooms; i++) {   // 走廊壁燈（微弱暖光，增添氣氛）
+        const px = rx0 + i * rw;
+        b.boxC(px, yb + 1.85, zc0 + 0.2, 0.2, 0.3, 0.1, '#ffcf7a', false, 0.7);
+        b.boxC(px, yb + 1.85, zc1 - 0.2, 0.2, 0.3, 0.1, '#ffcf7a', false, 0.7);
       }
       b.spots.patrol.push([rx0 + (x1 - rx0) / 2, yb, cz]);
     }
@@ -916,8 +1047,7 @@ function building(b, o) {
       b.spots.ped.push({ x: x0 + o.hallW + 12, y: yTop, z: z1 - 1.5 });
       b.spots.frog.push({ x: x1 - 1.0, y: yTop + 0.02, z: z0 + 0.8 });
       b.spots.patrol.push([x0 + o.hallW + 6, yTop, cz]);
-      b.boxC(x0 + o.hallW + 15, yTop, z0 + 4, 2.4, 2.2, 2.4, '#3d4448');
-      addHide(b, 'tank', x0 + o.hallW + 15, yTop, z0 + 4, x0 + o.hallW + 15, z0 + 6.2, 0);
+      mkTank(b, x0 + o.hallW + 15, yTop, z0 + 4);
     }
   } else if (o.roof === 'pitched') {
     b.pyr((x0 + x1) / 2, yTop, (z0 + z1) / 2, (x1 - x0) + 2, (z1 - z0) + 2, o.roofH || 5, pal.roofCol);
@@ -1003,9 +1133,18 @@ function tree(b, x, z, s = 1, pal) {
   b.pyr(x, 3.4 * s, z, 2.4 * s, 2.4 * s, 2.4 * s, c2);
 }
 function bush(b, x, z, pal) {
-  b.boxC(x, 0, z, 1.5, 1.1, 1.5, (pal && pal.bush) || '#2f6a35', true, 0.10);
-  b.boxC(x, 1.1, z, 1.1, 0.35, 1.1, (pal && pal.bush2) || '#3a7a40', false, 0.08);
-  addHide(b, 'bush', x, 0, z, x, z + 1.7, 0);
+  const c1 = (pal && pal.bush) || '#2f6a35', c2 = (pal && pal.bush2) || '#3a7a40', c3 = '#255a2c', c4 = '#4a8a48';
+  b.colBox(x - 0.9, 0, z - 0.9, x + 0.9, 1.15, z + 0.9);
+  b.boxC(x, 0, z, 1.3, 0.45, 1.3, c3, false, 0.08);
+  // 錯落的低多邊形葉叢（四角錐），比方塊更像灌木
+  const cl = [[0, 0, 0, 1.7, 1.35, c1], [-0.32, 0.28, 0, 1.3, 1.05, c2], [0.36, 0.22, 0, 1.35, 1.0, c3], [0.22, -0.4, 0, 1.25, 1.1, c2],
+    [-0.35, -0.34, 0, 1.15, 0.95, c1], [0.05, 0.05, 0.25, 1.1, 1.3, c4], [-0.5, 0.45, 0, 0.9, 0.7, c3], [0.5, -0.1, 0.1, 0.85, 0.75, c4]];
+  for (const [dx, dz, dy, w, h, c] of cl) b.pyr(x + dx, 0.12 + dy, z + dz, w, w, h, c, 0.09);
+  for (let k = 0; k < 5; k++) {
+    const an = b.rng() * TAU, rr = 0.55 + b.rng() * 0.25;
+    b.boxC(x + Math.cos(an) * rr, 0.5 + b.rng() * 0.55, z + Math.sin(an) * rr, 0.1, 0.1, 0.1, rpick(b.rng, ['#ff8fb0', '#ffe27a', '#ffffff']), false, 0.55);
+  }
+  addHide(b, 'bush', x, 0, z, x, z + 1.8, 0);
 }
 function mound(b, cx, cz, w, d, layers, col, rise = 0.45) {
   for (let i = 0; i < layers; i++) {
@@ -1140,9 +1279,7 @@ function buildCity() {
   });
   // 垃圾箱（可藏）
   [[-16, -8], [16, 8], [-8, 16], [8, -16], [-46, 8], [46, -8], [-16, 20], [20, -20]].forEach((p, i) => {
-    b.boxC(p[0], 0, p[1], 2.0, 1.4, 1.1, '#2e5a3a', true, 0.10);
-    b.boxC(p[0], 1.4, p[1], 2.1, 0.08, 1.2, '#244a30', false);
-    addHide(b, 'dumpster', p[0], 0, p[1], p[0], p[1] + 1.6, 0);
+    mkDumpster(b, p[0], p[1]);
     if (i % 2 === 0) b.spots.code.push({ x: p[0] + 1.3, y: 0.03, z: p[1], hint: '垃圾箱旁' });
   });
   // 貨櫃堆（高度）：一個可爬上的貨櫃
@@ -1199,13 +1336,13 @@ function buildCastle() {
   b.boxC(-22, 0, 8, 2.2, 1.0, 2.2, '#5a5a58'); b.boxC(-22, 1.0, 8, 1.3, 0.1, 1.3, '#101418', false);
   b.spots.code.push({ x: -22, y: 0.03, z: 9.4, hint: '水井旁' });
   // 乾草（可藏）、推車
-  [[-26, 18], [24, -8], [-8, 24], [18, 14]].forEach((p, i) => {
-    b.boxC(p[0], 0, p[1], 1.8, 1.4, 1.4, '#8a7a3a', true, 0.10); addHide(b, 'hay', p[0], 0, p[1], p[0], p[1] + 1.7, 0);
+  [[-26, 18], [24, -8], [-8, 24], [-14, 10]].forEach((p, i) => {
+    mkHay(b, p[0], p[1]);
     if (i % 2) b.spots.code.push({ x: p[0] + 1.3, y: 0.03, z: p[1], hint: '乾草旁' });
   });
   [[-12, 14], [10, 6], [-24, -2], [30, 0]].forEach(p => { b.boxC(p[0], 0.4, p[1], 2.0, 0.6, 1.2, '#4a3424'); b.boxC(p[0] - 0.9, 0, p[1], 0.7, 0.7, 0.1, '#222', false); b.spots.code.push({ x: p[0], y: 0.03, z: p[1] + 1.0, hint: '推車下' }); });
-  // 地牢迷宮 x∈[6,30] z∈[8,32]（頂部有天花板）
-  const dz = mazeGen(b, { ox: 6, oz: 8, cols: 6, rows: 6, cell: 4, th: 0.8, h: 3.0, col: '#4a4846', entrances: [{ side: 'w', idx: 2 }, { side: 'n', idx: 1 }], ceiling: { y0: 3.0, y1: 3.4, col: '#2c2a28' } });
+  // 地牢迷宮 x∈[6,22] z∈[8,32]（頂部有天花板；避開東南角塔）
+  const dz = mazeGen(b, { ox: 6, oz: 8, cols: 4, rows: 6, cell: 4, th: 0.8, h: 3.0, col: '#4a4846', entrances: [{ side: 'w', idx: 2 }, { side: 'n', idx: 1 }], ceiling: { y0: 3.0, y1: 3.4, col: '#2c2a28' } });
   dz.dead.forEach((d, i) => {
     const k = i % 4;
     if (k === 0 || k === 1) b.spots.code.push({ x: d.x + (b.rng() - 0.5) * 1.2, y: 0.03, z: d.z + (b.rng() - 0.5) * 1.2, hint: '地牢死路' });
@@ -1215,7 +1352,7 @@ function buildCastle() {
   });
   b.spots.patrol.push([dz.center.x, 0, dz.center.z]);
   // 棺木／牢籠（可藏）
-  [[8, 10], [28, 30]].forEach(p => { b.boxC(p[0] + 1, 0, p[1] + 1, 1.0, 0.8, 2.0, '#3a2a20', true, 0.10); addHide(b, 'coffin', p[0] + 1, 0, p[1] + 1, p[0] + 1, p[1] - 0.2, 0); });
+  [[8, 10], [16, 26]].forEach(p => { mkCoffin(b, p[0] + 1, p[1] + 1); });
   // 戶外樹木與石頭
   const avoid = [[-36, -36, 36, 36]];
   const forest = scatter(b, 110, b.bounds, 4.5, avoid, (x, z) => tree(b, x, z, 0.9 + b.rng() * 0.5, { leaf1: '#2a3a22', leaf2: '#34452a', trunk: '#2a1e16' }));
@@ -1225,7 +1362,7 @@ function buildCastle() {
   mound(b, 44, 0, 14, 14, 3, '#3a4430'); b.spots.ped.push({ x: 44, y: 1.35, z: 0 });
   // 火把（城門）
   [[-5, 31], [5, 31]].forEach(p => lamp(b, p[0], p[1], 2.8, '#ff9a48'));
-  [[-8, 20], [8, 20], [-26, -10], [26, -16]].forEach(p => lamp(b, p[0], p[1], 2.6, '#ff9a48'));
+  [[-8, 20], [3, 20], [-26, -10], [26, -16]].forEach(p => lamp(b, p[0], p[1], 2.6, '#ff9a48'));
   // 出生點／巡邏
   [[0, 0, 44], [-20, 0, 46], [20, 0, 46], [-46, 0, 0], [46, 0, 20], [0, 0, 16], [-20, 0, 16], [-40, 0, -46], [40, 0, -46], [-46, 0, 40], [46, 0, -30], [0, 0, 22]].forEach(p => b.spots.spawn.push(p));
   [[0, 0, 44], [0, 0, 22], [-20, 0, 16], [-46, 0, 0], [46, 0, 20], [0, 0, -46], [-40, 0, -46], [40, 0, 46], [-24, 0, -4]].forEach(p => b.spots.patrol.push(p));
@@ -1365,6 +1502,7 @@ class Renderer {
       c.minZ = Math.min(c.minZ, z0); c.maxZ = Math.max(c.maxZ, z1);
     };
     for (const b of builder.boxes) {
+      if (b.novis) continue;
       const c = get((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2);
       pushBox(c.arr, b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, b.col, b.emit, b.y0 <= 0.001);
       grow(c, b.x0, b.y0, b.z0, b.x1, b.y1, b.z1);
@@ -1445,8 +1583,9 @@ class Renderer {
   }
   drawDyn(mesh, x, y, z, yaw, sx, sy, sz, o) {
     const gl = this.gl, L = this.loc;
-    if (!this.visible(x, y + 1, z, 2.2 * Math.max(sx, sy, sz))) return;
     o = o || {};
+    if (o.maxDist) { const c = this.cam, ddx = x - c.x, ddz = z - c.z; if (ddx * ddx + ddz * ddz + (y - c.y) * (y - c.y) > o.maxDist * o.maxDist) return; }
+    if (!this.visible(x, y + 1, z, 2.2 * Math.max(sx, sy, sz))) return;
     M4.model(this.mM, x, y, z, yaw || 0, sx || 1, sy || 1, sz || 1);
     gl.uniformMatrix4fv(L.uM, false, this.mM);
     const t = o.tint || [1, 1, 1];
@@ -1458,6 +1597,30 @@ class Renderer {
     this.bind(mesh); gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
     this.stats.dyn++;
   }
+}
+
+/* ===== 密碼告示牌：七段顯示器風格的四位數字 ===== */
+const SEG7 = { 0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc', 5: 'afgcd', 6: 'afgedc', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg' };
+function buildCodeMesh(R, str) {
+  const a = [], W = [1, 1, 1], dark = [0.05, 0.05, 0.06];
+  pushBox(a, -0.29, -0.14, 0, 0.29, 0.14, 0.018, dark, 0);
+  const bw = 0.012, zf = 0.018, zb = 0.026;
+  pushBox(a, -0.29, 0.14 - bw, zf, 0.29, 0.14, zb, W, 0.5);
+  pushBox(a, -0.29, -0.14, zf, 0.29, -0.14 + bw, zb, W, 0.5);
+  pushBox(a, -0.29, -0.14, zf, -0.29 + bw, 0.14, zb, W, 0.5);
+  pushBox(a, 0.29 - bw, -0.14, zf, 0.29, 0.14, zb, W, 0.5);
+  const dw = 0.09, dh = 0.17, t = 0.018, gap = 0.034, total = 4 * dw + 3 * gap, x0 = -total / 2, y0 = -dh / 2;
+  for (let i = 0; i < 4; i++) {
+    const segs = SEG7[str[i]] || '', ox = x0 + i * (dw + gap), h2 = dh / 2;
+    const S = {
+      a: [ox + 0.012, y0 + dh - t, ox + dw - 0.012, y0 + dh], d: [ox + 0.012, y0, ox + dw - 0.012, y0 + t],
+      g: [ox + 0.012, y0 + h2 - t / 2, ox + dw - 0.012, y0 + h2 + t / 2],
+      b: [ox + dw - t, y0 + h2 + 0.005, ox + dw, y0 + dh - 0.008], c: [ox + dw - t, y0 + 0.008, ox + dw, y0 + h2 - 0.005],
+      f: [ox, y0 + h2 + 0.005, ox + t, y0 + dh - 0.008], e: [ox, y0 + 0.008, ox + t, y0 + h2 - 0.005],
+    };
+    for (const k of segs) { const q = S[k]; pushBox(a, q[0], q[1], zf, q[2], q[3], zb + 0.004, W, 0.62); }
+  }
+  return R.makeMesh(a);
 }
 
 /* ===== 動態模型 ===== */
@@ -1492,6 +1655,8 @@ function buildModels(R) {
   M.pBody = mk(a => { pushBox(a, -0.26, 0.8, -0.15, 0.26, 1.4, 0.15, W, 0.05); pushBox(a, -0.42, 0.85, -0.1, -0.26, 1.4, 0.1, W, 0.05); pushBox(a, 0.26, 0.85, -0.1, 0.42, 1.4, 0.1, W, 0.05); });
   M.pHead = mk(a => { pushBox(a, -0.18, 1.4, -0.18, 0.18, 1.76, 0.18, [0.86, 0.7, 0.58], 0.05); pushBox(a, -0.19, 1.62, -0.19, 0.19, 1.78, 0.19, [0.15, 0.1, 0.08], 0.0); });
   M.pLegs = mk(a => { pushBox(a, -0.22, 0, -0.1, -0.02, 0.8, 0.1, [0.15, 0.17, 0.25], 0); pushBox(a, 0.02, 0, -0.1, 0.22, 0.8, 0.1, [0.15, 0.17, 0.25], 0); });
+  M.codePost = mk(a => pushBox(a, -0.018, -1, -0.045, 0.018, 0, -0.01, [0.08, 0.08, 0.09], 0));
+  M.codeFoot = mk(a => pushBox(a, -0.14, 0, -0.17, 0.14, 0.03, 0.03, [0.07, 0.07, 0.08], 0));
   M.cube = mk(a => { pushBox(a, -0.5, 0, -0.5, 0.5, 1, 0.5, W, 0); });
   return M;
 }
@@ -1715,6 +1880,28 @@ function getBundle(idx, needNav) {
     const ok = (p, h, v) => { const i = nav.nearest(p.x, p.y, p.z, 4); return i >= 0 && nav.inMain(i) && Math.hypot(nav.nx[i] - p.x, nav.nz[i] - p.z) <= h && Math.abs(nav.ny[i] - p.y) <= v; };
     c.valid = {};
     for (const k of ['code', 'lock', 'ped', 'frog']) c.valid[k] = b.spots[k].map((p, i) => i).filter(i => ok(b.spots[k][i], 1.8, 1.3));
+    // 密碼告示牌：只保留「從可走到的位置確實看得到」的點，並算出朝向／高度
+    c.codeView = [];
+    const viewFor = sp => {
+      let best = null, bs = 1e9;
+      for (const r of [1.6, 2.1, 2.6, 3.1, 3.6, 4.2]) for (let a = 0; a < 16; a++) {
+        const ang = a * Math.PI / 8, x = sp.x + Math.cos(ang) * r, z = sp.z + Math.sin(ang) * r;
+        const i = nav.nearest(x, sp.y, z, 2);
+        if (i < 0 || !nav.inMain(i) || Math.hypot(nav.nx[i] - x, nav.nz[i] - z) > 0.35) continue;
+        const fy = nav.ny[i], rel = sp.y - fy;
+        if (rel < -0.3 || rel > 2.6) continue;
+        const dy = Math.min(Math.max(sp.y, fy + 0.5), fy + 1.9);
+        const nx = nav.nx[i], nz = nav.nz[i], fx = nx - sp.x, fz = nz - sp.z, fl = Math.hypot(fx, fz);
+        if (fl < 0.5) continue;
+        const px = sp.x + fx / fl * 0.05, pz = sp.z + fz / fl * 0.05, sx = -fz / fl * 0.25, sz = fx / fl * 0.25, ey = fy + 1.55;
+        if (!c.world.los(nx, ey, nz, px, dy, pz) || !c.world.los(nx, ey, nz, px + sx, dy, pz + sz) || !c.world.los(nx, ey, nz, px - sx, dy, pz - sz)) continue;
+        const sc = Math.abs(r - 2.6) + Math.abs(dy - (fy + 1.2)) * 0.4;
+        if (sc < bs) { bs = sc; best = { yaw: Math.round(Math.atan2(fx, fz) * 100) / 100, y: Math.round(dy * 100) / 100, fy: Math.round(fy * 100) / 100, px: Math.round(px * 100) / 100, pz: Math.round(pz * 100) / 100 }; }
+      }
+      return best;
+    };
+    b.spots.code.forEach((sp, i) => { c.codeView[i] = viewFor(sp); });
+    c.valid.code = c.valid.code.filter(i => c.codeView[i]);
     c.valid.hide = b.spots.hide.map((p, i) => i).filter(i => ok({ x: b.spots.hide[i].ex, y: b.spots.hide[i].y, z: b.spots.hide[i].ez }, 0.9, 0.9));
     const arr = p => ({ x: p[0], y: p[1], z: p[2] });
     c.spawns = b.spots.spawn.filter(p => ok(arr(p), 1.0, 0.7));
@@ -1782,7 +1969,7 @@ class Sim {
   }
   newCode() { return String(1000 + Math.floor(this.rng() * 9000)); }
   worldMsg() {
-    return { t: 'world', map: this.mapIdx, codes: this.codes.map(c => c.spot), locks: this.locks.map(l => ({ spot: l.spot, open: l.open, by: l.by })), peds: this.peds.map(p => p.spot), frog: this.frog.spot, frogFound: this.frog.found };
+    return { t: 'world', map: this.mapIdx, codes: this.codes.map(c => c.spot), vals: this.codes.map(c => c.value), views: this.codes.map(c => this.bundle.codeView[c.spot]), locks: this.locks.map(l => ({ spot: l.spot, open: l.open, by: l.by })), peds: this.peds.map(p => p.spot), frog: this.frog.spot, frogFound: this.frog.found };
   }
   initMonster(spawns) {
     const nav = this.nav, route = this.bundle.route;
@@ -2329,6 +2516,7 @@ function clientHandle(m) {
 
 function applyWorld(m) {
   G.codes = m.codes.map(spot => ({ spot }));
+  G.codeVals = m.vals || []; G.codeViews = m.views || [];
   G.locks = m.locks.map(l => ({ spot: l.spot, open: l.open, by: l.by }));
   G.peds = m.peds.map(spot => ({ spot }));
   G.frog = { spot: m.frog, found: !!m.frogFound };
@@ -2547,7 +2735,7 @@ function computeInteract() {
     const score = perp / rr + t * 0.05;
     if (score < bs) { bs = score; best = { type, idx, txt }; }
   };
-  G.codes.forEach((c, i) => { const s = b.spots.code[c.spot]; test('code', i, s.x, s.y + 0.05, s.z, 0.38, `檢查密碼條`); });
+  G.codes.forEach((c, i) => { const v = G.codeViews[i]; if (v) test('code', i, v.px, v.y, v.pz, 0.5, `記下${COLORS[i].name}色密碼`); });
   G.locks.forEach((l, i) => { const s = b.spots.lock[l.spot]; test('lock', i, s.x, s.y + 0.5, s.z, 0.65, l.open ? `${COLORS[i].name}色鎖（已被開啟）` : `輸入${COLORS[i].name}色密碼鎖`); });
   G.peds.forEach((p, i) => { const s = b.spots.ped[p.spot]; test('ped', i, s.x, s.y + 0.8, s.z, 0.75, me.items.includes(i) ? `放置${COLORS[i].name}色物品` : `${COLORS[i].name}色放置點（需要${COLORS[i].name}色物品）`); });
   if (!G.frog.found) { const s = b.spots.frog[G.frog.spot]; test('frog', 0, s.x, s.y + 0.06, s.z, 0.4, '🐸 抓住奶蛙！'); }
@@ -2787,6 +2975,7 @@ function updateTags() {
 }
 
 let camPos = { x: 0, y: 0, z: 0 };
+const codeMeshes = new Map();
 function renderFrame(dt) {
   if (!R) return;
   const me = G.me;
@@ -2816,8 +3005,18 @@ function renderFrame(dt) {
   R.begin(cam, G.flash && !(me.hidden));
   R.drawStatic(G.chunks);
   const t = performance.now() / 1000;
-  // 密碼條
-  G.codes.forEach((c, i) => { const s = b.spots.code[c.spot]; R.drawDyn(MODELS.slip, s.x, s.y, s.z, (s.x * 13.1 + s.z * 7.7) % TAU, 1, 1, 1, { tint: COLORS[i].rgb }); });
+  // 密碼告示牌（微亮的四位數字，顏色對應鎖）
+  G.codes.forEach((c, i) => {
+    const v = G.codeViews[i], val = G.codeVals[i]; if (!v || !val) return;
+    let mesh = codeMeshes.get(val);
+    if (!mesh) { mesh = buildCodeMesh(R, val); codeMeshes.set(val, mesh); if (codeMeshes.size > 24) { const k = codeMeshes.keys().next().value; R.freeMesh(codeMeshes.get(k)); codeMeshes.delete(k); } }
+    const pulse = 0.05 * Math.sin(t * 2 + i * 1.7);
+    R.drawDyn(mesh, v.px, v.y, v.pz, v.yaw, 1, 1, 1, { tint: COLORS[i].rgb, emit: pulse, maxDist: 18 });
+    if (v.y - v.fy < 1.05) {
+      R.drawDyn(MODELS.codePost, v.px, v.y - 0.13, v.pz, v.yaw, 1, Math.max(0.05, v.y - 0.13 - v.fy), 1, { maxDist: 18 });
+      R.drawDyn(MODELS.codeFoot, v.px, v.fy, v.pz, v.yaw, 1, 1, 1, { maxDist: 18 });
+    }
+  });
   // 鎖
   G.locks.forEach((l, i) => {
     const s = b.spots.lock[l.spot];

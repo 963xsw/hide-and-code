@@ -21,6 +21,28 @@ function getBundle(idx, needNav) {
     const ok = (p, h, v) => { const i = nav.nearest(p.x, p.y, p.z, 4); return i >= 0 && nav.inMain(i) && Math.hypot(nav.nx[i] - p.x, nav.nz[i] - p.z) <= h && Math.abs(nav.ny[i] - p.y) <= v; };
     c.valid = {};
     for (const k of ['code', 'lock', 'ped', 'frog']) c.valid[k] = b.spots[k].map((p, i) => i).filter(i => ok(b.spots[k][i], 1.8, 1.3));
+    // 密碼告示牌：只保留「從可走到的位置確實看得到」的點，並算出朝向／高度
+    c.codeView = [];
+    const viewFor = sp => {
+      let best = null, bs = 1e9;
+      for (const r of [1.6, 2.1, 2.6, 3.1, 3.6, 4.2]) for (let a = 0; a < 16; a++) {
+        const ang = a * Math.PI / 8, x = sp.x + Math.cos(ang) * r, z = sp.z + Math.sin(ang) * r;
+        const i = nav.nearest(x, sp.y, z, 2);
+        if (i < 0 || !nav.inMain(i) || Math.hypot(nav.nx[i] - x, nav.nz[i] - z) > 0.35) continue;
+        const fy = nav.ny[i], rel = sp.y - fy;
+        if (rel < -0.3 || rel > 2.6) continue;
+        const dy = Math.min(Math.max(sp.y, fy + 0.5), fy + 1.9);
+        const nx = nav.nx[i], nz = nav.nz[i], fx = nx - sp.x, fz = nz - sp.z, fl = Math.hypot(fx, fz);
+        if (fl < 0.5) continue;
+        const px = sp.x + fx / fl * 0.05, pz = sp.z + fz / fl * 0.05, sx = -fz / fl * 0.25, sz = fx / fl * 0.25, ey = fy + 1.55;
+        if (!c.world.los(nx, ey, nz, px, dy, pz) || !c.world.los(nx, ey, nz, px + sx, dy, pz + sz) || !c.world.los(nx, ey, nz, px - sx, dy, pz - sz)) continue;
+        const sc = Math.abs(r - 2.6) + Math.abs(dy - (fy + 1.2)) * 0.4;
+        if (sc < bs) { bs = sc; best = { yaw: Math.round(Math.atan2(fx, fz) * 100) / 100, y: Math.round(dy * 100) / 100, fy: Math.round(fy * 100) / 100, px: Math.round(px * 100) / 100, pz: Math.round(pz * 100) / 100 }; }
+      }
+      return best;
+    };
+    b.spots.code.forEach((sp, i) => { c.codeView[i] = viewFor(sp); });
+    c.valid.code = c.valid.code.filter(i => c.codeView[i]);
     c.valid.hide = b.spots.hide.map((p, i) => i).filter(i => ok({ x: b.spots.hide[i].ex, y: b.spots.hide[i].y, z: b.spots.hide[i].ez }, 0.9, 0.9));
     const arr = p => ({ x: p[0], y: p[1], z: p[2] });
     c.spawns = b.spots.spawn.filter(p => ok(arr(p), 1.0, 0.7));
@@ -88,7 +110,7 @@ class Sim {
   }
   newCode() { return String(1000 + Math.floor(this.rng() * 9000)); }
   worldMsg() {
-    return { t: 'world', map: this.mapIdx, codes: this.codes.map(c => c.spot), locks: this.locks.map(l => ({ spot: l.spot, open: l.open, by: l.by })), peds: this.peds.map(p => p.spot), frog: this.frog.spot, frogFound: this.frog.found };
+    return { t: 'world', map: this.mapIdx, codes: this.codes.map(c => c.spot), vals: this.codes.map(c => c.value), views: this.codes.map(c => this.bundle.codeView[c.spot]), locks: this.locks.map(l => ({ spot: l.spot, open: l.open, by: l.by })), peds: this.peds.map(p => p.spot), frog: this.frog.spot, frogFound: this.frog.found };
   }
   initMonster(spawns) {
     const nav = this.nav, route = this.bundle.route;

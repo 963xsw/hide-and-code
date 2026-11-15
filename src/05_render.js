@@ -123,6 +123,7 @@ class Renderer {
       c.minZ = Math.min(c.minZ, z0); c.maxZ = Math.max(c.maxZ, z1);
     };
     for (const b of builder.boxes) {
+      if (b.novis) continue;
       const c = get((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2);
       pushBox(c.arr, b.x0, b.y0, b.z0, b.x1, b.y1, b.z1, b.col, b.emit, b.y0 <= 0.001);
       grow(c, b.x0, b.y0, b.z0, b.x1, b.y1, b.z1);
@@ -203,8 +204,9 @@ class Renderer {
   }
   drawDyn(mesh, x, y, z, yaw, sx, sy, sz, o) {
     const gl = this.gl, L = this.loc;
-    if (!this.visible(x, y + 1, z, 2.2 * Math.max(sx, sy, sz))) return;
     o = o || {};
+    if (o.maxDist) { const c = this.cam, ddx = x - c.x, ddz = z - c.z; if (ddx * ddx + ddz * ddz + (y - c.y) * (y - c.y) > o.maxDist * o.maxDist) return; }
+    if (!this.visible(x, y + 1, z, 2.2 * Math.max(sx, sy, sz))) return;
     M4.model(this.mM, x, y, z, yaw || 0, sx || 1, sy || 1, sz || 1);
     gl.uniformMatrix4fv(L.uM, false, this.mM);
     const t = o.tint || [1, 1, 1];
@@ -216,6 +218,30 @@ class Renderer {
     this.bind(mesh); gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
     this.stats.dyn++;
   }
+}
+
+/* ===== 密碼告示牌：七段顯示器風格的四位數字 ===== */
+const SEG7 = { 0: 'abcdef', 1: 'bc', 2: 'abged', 3: 'abgcd', 4: 'fgbc', 5: 'afgcd', 6: 'afgedc', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg' };
+function buildCodeMesh(R, str) {
+  const a = [], W = [1, 1, 1], dark = [0.05, 0.05, 0.06];
+  pushBox(a, -0.29, -0.14, 0, 0.29, 0.14, 0.018, dark, 0);
+  const bw = 0.012, zf = 0.018, zb = 0.026;
+  pushBox(a, -0.29, 0.14 - bw, zf, 0.29, 0.14, zb, W, 0.5);
+  pushBox(a, -0.29, -0.14, zf, 0.29, -0.14 + bw, zb, W, 0.5);
+  pushBox(a, -0.29, -0.14, zf, -0.29 + bw, 0.14, zb, W, 0.5);
+  pushBox(a, 0.29 - bw, -0.14, zf, 0.29, 0.14, zb, W, 0.5);
+  const dw = 0.09, dh = 0.17, t = 0.018, gap = 0.034, total = 4 * dw + 3 * gap, x0 = -total / 2, y0 = -dh / 2;
+  for (let i = 0; i < 4; i++) {
+    const segs = SEG7[str[i]] || '', ox = x0 + i * (dw + gap), h2 = dh / 2;
+    const S = {
+      a: [ox + 0.012, y0 + dh - t, ox + dw - 0.012, y0 + dh], d: [ox + 0.012, y0, ox + dw - 0.012, y0 + t],
+      g: [ox + 0.012, y0 + h2 - t / 2, ox + dw - 0.012, y0 + h2 + t / 2],
+      b: [ox + dw - t, y0 + h2 + 0.005, ox + dw, y0 + dh - 0.008], c: [ox + dw - t, y0 + 0.008, ox + dw, y0 + h2 - 0.005],
+      f: [ox, y0 + h2 + 0.005, ox + t, y0 + dh - 0.008], e: [ox, y0 + 0.008, ox + t, y0 + h2 - 0.005],
+    };
+    for (const k of segs) { const q = S[k]; pushBox(a, q[0], q[1], zf, q[2], q[3], zb + 0.004, W, 0.62); }
+  }
+  return R.makeMesh(a);
 }
 
 /* ===== 動態模型 ===== */
@@ -250,6 +276,8 @@ function buildModels(R) {
   M.pBody = mk(a => { pushBox(a, -0.26, 0.8, -0.15, 0.26, 1.4, 0.15, W, 0.05); pushBox(a, -0.42, 0.85, -0.1, -0.26, 1.4, 0.1, W, 0.05); pushBox(a, 0.26, 0.85, -0.1, 0.42, 1.4, 0.1, W, 0.05); });
   M.pHead = mk(a => { pushBox(a, -0.18, 1.4, -0.18, 0.18, 1.76, 0.18, [0.86, 0.7, 0.58], 0.05); pushBox(a, -0.19, 1.62, -0.19, 0.19, 1.78, 0.19, [0.15, 0.1, 0.08], 0.0); });
   M.pLegs = mk(a => { pushBox(a, -0.22, 0, -0.1, -0.02, 0.8, 0.1, [0.15, 0.17, 0.25], 0); pushBox(a, 0.02, 0, -0.1, 0.22, 0.8, 0.1, [0.15, 0.17, 0.25], 0); });
+  M.codePost = mk(a => pushBox(a, -0.018, -1, -0.045, 0.018, 0, -0.01, [0.08, 0.08, 0.09], 0));
+  M.codeFoot = mk(a => pushBox(a, -0.14, 0, -0.17, 0.14, 0.03, 0.03, [0.07, 0.07, 0.08], 0));
   M.cube = mk(a => { pushBox(a, -0.5, 0, -0.5, 0.5, 1, 0.5, W, 0); });
   return M;
 }

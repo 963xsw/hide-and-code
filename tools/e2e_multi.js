@@ -71,8 +71,8 @@ const srv = http.createServer((req, res) => {
       } return false;
     };
   });
-  const spots = await B.evaluate(() => { const G = window.__HC.G, b = G.bundle.b; const c = b.spots.code[G.codes[1].spot], l = b.spots.lock[G.locks[1].spot], p = b.spots.ped[G.peds[1].spot]; return { c: [c.x, c.y + 0.05, c.z], l: [l.x, l.y + 0.5, l.z], p: [p.x, p.y + 0.8, p.z] }; });
-  await B.evaluate(s => window.standLookB(...s.c), spots); await B.waitForTimeout(300); await B.keyboard.press('KeyE'); await B.waitForTimeout(500);
+  const spots = await B.evaluate(() => { const G = window.__HC.G, b = G.bundle.b; const v1 = G.codeViews[1], c = { x: v1.px, y: v1.y - 0.05, z: v1.pz }, l = b.spots.lock[G.locks[1].spot], p = b.spots.ped[G.peds[1].spot]; return { c: [c.x, c.y + 0.05, c.z], l: [l.x, l.y + 0.5, l.z], p: [p.x, p.y + 0.8, p.z] }; });
+  await B.evaluate(s => window.standLookB(...s.c, 1.2, 3.6), spots); await B.waitForTimeout(300); await B.keyboard.press('KeyE'); await B.waitForTimeout(500);
   const note = await B.evaluate(() => window.__HC.G.notes[1]);
   ok(/^\d{4}$/.test(note), '乙檢查密碼條取得藍色密碼 ' + note + '（只有乙知道）');
   ok(await A.evaluate(() => window.__HC.G.notes[1] === undefined), '甲不會得知乙找到的密碼');

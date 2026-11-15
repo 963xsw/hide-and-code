@@ -24,6 +24,7 @@ for (const def of A.MAP_DEFS) {
   const pt = b.spots.patrol.filter(p => reach(nav, { x: p[0], y: p[1], z: p[2] }, 1.0, 0.6)).length + '/' + b.spots.patrol.length;
   const pr = b.portals.map(p => [reach(nav, { x: p.a[0], y: p.a[1], z: p.a[2] }, 1.0, 0.6), reach(nav, { x: p.b[0], y: p.b[1], z: p.b[2] }, 1.0, 0.6)]);
   console.log(`${def.id}: boxes=${b.boxes.length} solid=${w.solid.length} pyr=${b.pyrs.length} navNodes=${nav.n} comps=${nav.compSize.length} main=${nav.compSize[nav.main]} build=${t1 - t0}ms nav=${t2 - t1}ms`);
+  if (pr.some(q => !q[0] || !q[1])) { console.log('  ✗ 傳送門出口走不到！'); process.exitCode = 1; }
   console.log('  spots reachable', JSON.stringify(cnt), 'spawn', sp, 'patrol', pt, 'portals', JSON.stringify(pr));
   // 三層測試：各樓層節點分佈
   const ys = {};

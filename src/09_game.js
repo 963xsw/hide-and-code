@@ -271,6 +271,7 @@ function clientHandle(m) {
 
 function applyWorld(m) {
   G.codes = m.codes.map(spot => ({ spot }));
+  G.codeVals = m.vals || []; G.codeViews = m.views || [];
   G.locks = m.locks.map(l => ({ spot: l.spot, open: l.open, by: l.by }));
   G.peds = m.peds.map(spot => ({ spot }));
   G.frog = { spot: m.frog, found: !!m.frogFound };
@@ -489,7 +490,7 @@ function computeInteract() {
     const score = perp / rr + t * 0.05;
     if (score < bs) { bs = score; best = { type, idx, txt }; }
   };
-  G.codes.forEach((c, i) => { const s = b.spots.code[c.spot]; test('code', i, s.x, s.y + 0.05, s.z, 0.38, `檢查密碼條`); });
+  G.codes.forEach((c, i) => { const v = G.codeViews[i]; if (v) test('code', i, v.px, v.y, v.pz, 0.5, `記下${COLORS[i].name}色密碼`); });
   G.locks.forEach((l, i) => { const s = b.spots.lock[l.spot]; test('lock', i, s.x, s.y + 0.5, s.z, 0.65, l.open ? `${COLORS[i].name}色鎖（已被開啟）` : `輸入${COLORS[i].name}色密碼鎖`); });
   G.peds.forEach((p, i) => { const s = b.spots.ped[p.spot]; test('ped', i, s.x, s.y + 0.8, s.z, 0.75, me.items.includes(i) ? `放置${COLORS[i].name}色物品` : `${COLORS[i].name}色放置點（需要${COLORS[i].name}色物品）`); });
   if (!G.frog.found) { const s = b.spots.frog[G.frog.spot]; test('frog', 0, s.x, s.y + 0.06, s.z, 0.4, '🐸 抓住奶蛙！'); }

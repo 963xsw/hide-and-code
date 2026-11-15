@@ -45,10 +45,128 @@ function addStairs(b, o, k, col) {
 /* ---------- 家具與藏匿／解謎點 ---------- */
 function addHide(b, kind, x, y, z, ex, ez, yaw) { b.spots.hide.push({ kind, x, y, z, ex, ez, yaw }); }
 
+/* ----- 精緻家具：全部由少量方塊拼成，維持流暢度 ----- */
+function mkWardrobe(b, x, y, z, iz, P) {
+  const zc = z + iz * 0.4, zf = zc + iz * 0.37;
+  b.boxC(x, y + 0.1, zc, 1.3, 1.95, 0.7, P.wood);
+  b.boxC(x, y, zc, 1.38, 0.12, 0.78, P.dark, false);
+  b.boxC(x, y + 2.05, zc, 1.44, 0.1, 0.82, P.dark, false);
+  b.boxC(x, y + 2.15, zc, 1.2, 0.07, 0.62, P.dark, false);
+  b.boxC(x - 0.31, y + 0.17, zf, 0.58, 1.82, 0.03, P.door, false, 0.07);
+  b.boxC(x + 0.31, y + 0.17, zf, 0.58, 1.82, 0.03, P.door, false, 0.07);
+  b.boxC(x, y + 0.17, zf + iz * 0.005, 0.035, 1.82, 0.04, '#140e0a', false);
+  for (const sx of [-0.31, 0.31]) {
+    b.boxC(x + sx, y + 0.35, zf + iz * 0.02, 0.4, 0.55, 0.02, P.door2, false, 0.05);
+    b.boxC(x + sx, y + 1.1, zf + iz * 0.02, 0.4, 0.8, 0.02, P.door2, false, 0.05);
+  }
+  b.boxC(x - 0.09, y + 1.0, zf + iz * 0.035, 0.035, 0.16, 0.035, P.brass, false, 0.35);
+  b.boxC(x + 0.09, y + 1.0, zf + iz * 0.035, 0.035, 0.16, 0.035, P.brass, false, 0.35);
+}
+function mkBed(b, x, y, z, iz, P) {
+  const zc = z + iz * 1.0;
+  b.colBox(x - 0.55, y, zc - 1.0, x + 0.55, y + 0.62, zc + 1.0);
+  for (const sx of [-0.48, 0.48]) for (const sz of [-0.94, 0.94]) b.boxC(x + sx, y, zc + sz, 0.09, 0.22, 0.09, P.dark, false);
+  b.boxC(x, y + 0.2, zc, 1.04, 0.14, 2.0, P.wood, false);
+  b.boxC(x, y + 0.34, zc, 0.94, 0.2, 1.9, P.mattress, false);
+  b.boxC(x, y + 0.44, zc + iz * 0.42, 0.98, 0.1, 1.15, P.cloth, false, 0.04);
+  b.boxC(x, y + 0.54, z + iz * 0.3, 0.62, 0.11, 0.34, P.pillow, false);
+  b.boxC(x, y + 0.1, z + iz * 0.05, 1.1, 1.0, 0.08, P.wood, false);
+  b.boxC(x, y + 0.1, z + iz * 1.96, 1.1, 0.5, 0.07, P.wood, false);
+}
+function mkCrate(b, x, y, z, P) {
+  b.boxC(x, y, z, 0.95, 0.95, 0.95, P.crate);
+  b.boxC(x, y + 0.93, z, 1.02, 0.06, 1.02, P.dark, false);
+  for (const sx of [-0.46, 0.46]) for (const sz of [-0.46, 0.46]) b.boxC(x + sx, y, z + sz, 0.07, 0.95, 0.07, P.dark, false);
+  b.boxC(x, y + 0.3, z, 0.99, 0.05, 0.99, P.dark, false);
+  b.boxC(x, y + 0.64, z, 0.99, 0.05, 0.99, P.dark, false);
+}
+function mkShelf(b, x, y, z, iz, P) {
+  b.boxC(x, y, z + iz * 0.25, 1.4, 1.9, 0.4, P.wood);
+  b.boxC(x, y + 1.9, z + iz * 0.25, 1.5, 0.06, 0.46, P.dark, false);
+  const cols = ['#7a3a3a', '#3a5a7a', '#5a7a3a', '#8a6a2a', '#5a3a6a', '#aaa090'];
+  for (const sy of [0.42, 1.12, 1.62]) {
+    b.boxC(x, y + sy - 0.03, z + iz * 0.4, 1.34, 0.04, 0.24, P.dark, false);
+    let bx = -0.6;
+    while (bx < 0.55) {
+      const w = 0.07 + b.rng() * 0.05, h = 0.2 + b.rng() * 0.12;
+      b.boxC(x + bx + w / 2, y + sy, z + iz * 0.4, w, h, 0.2, rpick(b.rng, cols), false);
+      bx += w + 0.012;
+    }
+  }
+}
+function mkTable(b, x, y, z, P) {
+  b.boxC(x, y + 0.75, z, 1.4, 0.08, 0.9, P.wood, false);
+  b.boxC(x, y + 0.68, z, 1.3, 0.07, 0.8, P.dark, false);
+  for (const dx of [-0.6, 0.6]) for (const dz of [-0.35, 0.35]) b.boxC(x + dx, y, z + dz, 0.08, 0.75, 0.08, P.wood, false);
+  b.boxC(x - 0.3, y + 0.83, z + 0.1, 0.12, 0.16, 0.12, '#9ab', false, 0.12);   // 小瓶子
+}
+function mkDumpster(b, x, z) {
+  b.colBox(x - 1.0, 0, z - 0.55, x + 1.0, 1.4, z + 0.55);
+  b.boxC(x, 0.22, z, 1.9, 1.0, 1.0, '#2e5a3a', false, 0.10);
+  b.boxC(x, 1.2, z, 2.04, 0.1, 1.12, '#244a30', false);
+  b.boxC(x - 0.5, 1.3, z, 0.98, 0.08, 1.12, '#1e3e28', false);
+  b.boxC(x + 0.5, 1.36, z, 0.98, 0.08, 1.12, '#1e3e28', false);
+  for (const xs of [-0.65, 0, 0.65]) for (const zs of [-0.52, 0.52]) b.boxC(x + xs, 0.24, z + zs, 0.1, 0.95, 0.04, '#244a30', false);
+  for (const xs of [-0.8, 0.8]) for (const zs of [-0.4, 0.4]) b.boxC(x + xs, 0, z + zs, 0.16, 0.22, 0.16, '#101214', false);
+  b.boxC(x, 0.7, z + 0.53, 0.7, 0.16, 0.02, '#8a8a7c', false);
+  b.boxC(x, 1.0, z - 0.58, 1.5, 0.05, 0.05, '#111', false);
+  addHide(b, 'dumpster', x, 0, z, x, z + 1.6, 0);
+}
+function mkHay(b, x, z) {
+  b.colBox(x - 0.9, 0, z - 0.7, x + 0.9, 1.4, z + 0.7);
+  b.boxC(x, 0, z, 1.8, 0.7, 1.4, '#b49a45', false, 0.10);
+  b.boxC(x - 0.1, 0.7, z, 1.4, 0.7, 1.2, '#a98e3a', false, 0.10);
+  for (const sx of [-0.5, 0.5]) b.boxC(x + sx, 0, z, 0.05, 0.72, 1.42, '#5a4a22', false);
+  for (const sx of [-0.4, 0.3]) b.boxC(x - 0.1 + sx, 0.7, z, 0.05, 0.72, 1.22, '#5a4a22', false);
+  for (let i = 0; i < 5; i++) b.pyr(x + (b.rng() - 0.5) * 1.5, 0.6 + b.rng() * 0.6, z + (b.rng() - 0.5) * 1.1, 0.25, 0.25, 0.35, '#d0b858', 0.08);
+  addHide(b, 'hay', x, 0, z, x, z + 1.7, 0);
+}
+function mkCoffin(b, x, z) {
+  b.colBox(x - 0.5, 0, z - 1.0, x + 0.5, 0.85, z + 1.0);
+  b.boxC(x, 0, z - 0.2, 1.0, 0.7, 1.1, '#3a2a20', false, 0.08);
+  b.boxC(x, 0, z - 0.8, 0.62, 0.7, 0.45, '#3a2a20', false, 0.08);
+  b.boxC(x, 0, z + 0.65, 0.66, 0.7, 0.7, '#3a2a20', false, 0.08);
+  b.boxC(x, 0.7, z - 0.2, 1.08, 0.1, 1.18, '#4a3426', false, 0.08);
+  b.boxC(x, 0.7, z - 0.8, 0.7, 0.1, 0.52, '#4a3426', false, 0.08);
+  b.boxC(x, 0.7, z + 0.65, 0.74, 0.1, 0.76, '#4a3426', false, 0.08);
+  b.boxC(x, 0.8, z - 0.1, 0.07, 0.03, 0.9, '#c9b27a', false, 0.35);
+  b.boxC(x, 0.8, z - 0.3, 0.5, 0.03, 0.07, '#c9b27a', false, 0.35);
+  addHide(b, 'coffin', x, 0, z, x, z - 1.2, 0);
+}
+function mkTank(b, x, y, z) {
+  b.colBox(x - 1.2, y, z - 1.2, x + 1.2, y + 2.2, z + 1.2);
+  for (const sx of [-1.0, 1.0]) for (const sz of [-1.0, 1.0]) b.boxC(x + sx, y, z + sz, 0.14, 0.75, 0.14, '#2a2e30', false);
+  b.boxC(x, y + 0.7, z, 2.3, 1.5, 2.3, '#4a5558', false, 0.06);
+  b.boxC(x, y + 1.0, z, 2.42, 0.08, 2.42, '#2a3234', false);
+  b.boxC(x, y + 1.7, z, 2.42, 0.08, 2.42, '#2a3234', false);
+  b.pyr(x, y + 2.2, z, 2.5, 2.5, 0.7, '#2a3234');
+  b.boxC(x + 1.2, y, z - 0.9, 0.06, 2.0, 0.06, '#222', false); b.boxC(x + 1.2, y, z - 0.5, 0.06, 2.0, 0.06, '#222', false);
+  for (let k = 0; k < 6; k++) b.boxC(x + 1.2, y + 0.3 + k * 0.3, z - 0.7, 0.05, 0.04, 0.4, '#222', false);
+  addHide(b, 'tank', x, y, z, x, z + 2.2, 0);
+}
+
 function furnishRoom(b, R, yb, pal, opt) {
-  // R: {ax0,az0,ax1,az1, backZ, backIn, frontZ, frontIn, doorX}
+  // R: {ax0,ax1, backZ, backIn, frontZ, frontIn, doorX}
   const rng = b.rng;
-  const cxm = (R.ax0 + R.ax1) / 2;
+  const P = Object.assign({ dark: '#2e2016', door: '#6e4d32', door2: '#7d5a3c', brass: '#c9a14a', mattress: '#cfc8b8', pillow: '#e8e0d0' }, pal);
+  const cxm = (R.ax0 + R.ax1) / 2, czm = (R.backZ + R.frontZ) / 2;
+  // 地毯
+  {
+    const rw = Math.min(3.4, R.ax1 - R.ax0 - 2.8), rd = Math.min(2.4, Math.abs(R.frontZ - R.backZ) - 2.6);
+    if (rw > 1.2 && rd > 1.0) {
+      const ry = yb === 0 ? 0.045 : yb + 0.006;
+      const c1 = rpick(rng, ['#5a2a2a', '#2a3a4a', '#3a4a2a', '#4a3a2a', '#4a2a4a']);
+      b.boxC(cxm, ry, czm, rw, 0.012, rd, c1, false);
+      b.boxC(cxm, ry + 0.012, czm, rw * 0.84, 0.01, rd * 0.78, '#8a7a5a', false);
+      b.boxC(cxm, ry + 0.022, czm, rw * 0.7, 0.01, rd * 0.62, c1, false);
+    }
+  }
+  // 牆上畫作
+  if (rng() < 0.75) {
+    const px = R.ax0 + 1.5 + rng() * Math.max(0.5, R.ax1 - R.ax0 - 3.0), pz = R.backZ + R.backIn * 0.06;
+    b.boxC(px, yb + 1.45, pz, 0.92, 0.64, 0.05, '#2a1e12', false);
+    b.boxC(px, yb + 1.5, pz + R.backIn * 0.03, 0.78, 0.5, 0.04, rpick(rng, ['#3a5a6a', '#6a4a3a', '#4a5a3a', '#5a4a6a', '#6a6a4a']), false, 0.03);
+  }
   const corners = shuffle(rng, [
     { x: R.ax0 + 0.8, z: R.backZ, iz: R.backIn, wall: 'back' },
     { x: R.ax1 - 0.8, z: R.backZ, iz: R.backIn, wall: 'back' },
@@ -63,42 +181,30 @@ function furnishRoom(b, R, yb, pal, opt) {
   kinds.push(rng() < 0.45 ? 'ped' : (rng() < 0.5 ? 'frog' : 'crate'));
   corners.forEach((c, i) => {
     const kind = kinds[i];
-    const towardC = c.x < cxm ? 1 : -1;       // 朝房間中央的 x 方向
-    const zc = c.z + c.iz * 0.5;              // 家具中心 z（貼牆）
+    const towardC = c.x < cxm ? 1 : -1;
     switch (kind) {
-      case 'wardrobe': {
-        b.boxC(c.x, yb, c.z + c.iz * 0.4, 1.3, 2.1, 0.7, pal.wood);
-        b.boxC(c.x, yb + 0.1, c.z + c.iz * 0.78, 1.1, 1.9, 0.04, pal.hide, false, 0.12);
+      case 'wardrobe':
+        mkWardrobe(b, c.x, yb, c.z, c.iz, P);
         addHide(b, 'wardrobe', c.x, yb, c.z + c.iz * 0.4, c.x, c.z + c.iz * 1.5, c.iz > 0 ? Math.PI : 0);
-        b.spots.code.push({ x: c.x, y: yb + 2.1, z: c.z + c.iz * 0.4, hint: '衣櫃頂' });
+        b.spots.code.push({ x: c.x, y: yb + 2.3, z: c.z + c.iz * 0.4, hint: '衣櫃頂' });
         break;
-      }
-      case 'bed': {
-        b.boxC(c.x, yb, c.z + c.iz * 1.0, 1.0, 0.5, 2.0, pal.wood);
-        b.boxC(c.x, yb + 0.5, c.z + c.iz * 1.1, 0.9, 0.18, 1.8, pal.cloth);
+      case 'bed':
+        mkBed(b, c.x, yb, c.z, c.iz, P);
         addHide(b, 'bed', c.x, yb, c.z + c.iz * 1.0, c.x + towardC * 1.3, c.z + c.iz * 1.0, 0);
-        b.spots.code.push({ x: c.x + towardC * 0.7, y: yb + 0.04, z: c.z + c.iz * 0.35, hint: '床邊地面' });
+        b.spots.code.push({ x: c.x + towardC * 0.75, y: yb + 0.04, z: c.z + c.iz * 0.35, hint: '床邊地面' });
         break;
-      }
-      case 'shelf': {
-        b.boxC(c.x, yb, c.z + c.iz * 0.25, 1.4, 1.9, 0.4, pal.wood);
-        b.boxC(c.x, yb + 0.4, c.z + c.iz * 0.47, 1.3, 0.05, 0.05, pal.trim, false);
-        b.boxC(c.x, yb + 1.1, c.z + c.iz * 0.47, 1.3, 0.05, 0.05, pal.trim, false);
-        b.spots.code.push({ x: c.x + (rng() - 0.5) * 0.8, y: yb + 1.12, z: c.z + c.iz * 0.5, hint: '書架' });
+      case 'shelf':
+        mkShelf(b, c.x, yb, c.z, c.iz, P);
+        b.spots.code.push({ x: c.x + (rng() - 0.5) * 0.6, y: yb + 1.2, z: c.z + c.iz * 0.5, hint: '書架' });
         break;
-      }
-      case 'crate': {
-        b.boxC(c.x, yb, c.z + c.iz * 0.5, 0.95, 0.95, 0.95, pal.crate);
-        b.boxC(c.x, yb + 0.95, c.z + c.iz * 0.5, 0.98, 0.04, 0.98, pal.trim, false);
-        if (rng() < 0.6) b.spots.code.push({ x: c.x + towardC * 0.85, y: yb + 0.03, z: c.z + c.iz * 0.35, hint: '木箱後' });
+      case 'crate':
+        mkCrate(b, c.x, yb, c.z + c.iz * 0.5, P);
+        if (rng() < 0.6) b.spots.code.push({ x: c.x + towardC * 0.85, y: yb + 0.03, z: c.z + c.iz * 0.35, hint: '木箱旁' });
         break;
-      }
-      case 'table': {
-        b.boxC(c.x, yb + 0.75, c.z + c.iz * 0.6, 1.4, 0.08, 0.9, pal.wood);
-        for (const dx of [-0.6, 0.6]) for (const dz of [-0.35, 0.35]) b.boxC(c.x + dx, yb, c.z + c.iz * 0.6 + dz, 0.08, 0.75, 0.08, pal.wood);
+      case 'table':
+        mkTable(b, c.x, yb, c.z + c.iz * 0.6, P);
         b.spots.code.push({ x: c.x, y: yb + 0.04, z: c.z + c.iz * 0.6, hint: '桌下' });
         break;
-      }
       case 'lock': b.spots.lock.push({ x: c.x, y: yb, z: c.z + c.iz * 0.35, yaw: c.iz > 0 ? 0 : Math.PI }); break;
       case 'ped': b.spots.ped.push({ x: c.x, y: yb, z: c.z + c.iz * 0.6 }); break;
       case 'frog': b.spots.frog.push({ x: c.x + towardC * 0.4, y: yb + 0.02, z: c.z + c.iz * 0.2 }); break;
@@ -114,6 +220,7 @@ function building(b, o) {
   const cw = 3.2, zc0 = cz - cw / 2, zc1 = cz + cw / 2;
   const pal = Object.assign({ wall: '#6a6258', floor: '#3b322b', ceil: '#2c2724', wood: '#5a3f2a', crate: '#6b5236', trim: '#2a2320', cloth: '#7a4a4a', hide: '#9a7a45', stair: '#4a3f36', roofCol: '#2a2230' }, o.pal || {});
   const hallOnly = !!o.hallOnly;
+  const FR = pal.frame || '#241c16';
   const rx0 = x0 + o.hallW, rw = hallOnly ? 0 : (x1 - rx0) / o.rooms;
   const flights = o.roof === 'access' ? floors : floors - 1;
   const roofHole = o.roof === 'access' ? flightInfo(o, floors - 1).hole : null;
@@ -154,18 +261,18 @@ function building(b, o) {
       for (let i = arr.length - 1; i >= 0; i--) if (Math.abs((arr[i].a + arr[i].b) / 2 - c) < 2.4) arr.splice(i, 1);
       arr.push(doorGap(c, d.w || DOORW));
     }
-    b.wall(x0, z0, x1, z0, yb, yt, WT, pal.wall, gN);
-    b.wall(x0, z1, x1, z1, yb, yt, WT, pal.wall, gS);
-    b.wall(x0, z0, x0, z1, yb, yt, WT, pal.wall, gW);
-    b.wall(x1, z0, x1, z1, yb, yt, WT, pal.wall, gE);
+    b.wall(x0, z0, x1, z0, yb, yt, WT, pal.wall, gN, FR);
+    b.wall(x0, z1, x1, z1, yb, yt, WT, pal.wall, gS, FR);
+    b.wall(x0, z0, x0, z1, yb, yt, WT, pal.wall, gW, FR);
+    b.wall(x1, z0, x1, z1, yb, yt, WT, pal.wall, gE, FR);
     // 大廳與走廊
     if (!hallOnly) {
-      b.wall(rx0, z0, rx0, z1, yb, yt, WT, pal.wall, [doorGap(cz)]);
+      b.wall(rx0, z0, rx0, z1, yb, yt, WT, pal.wall, [doorGap(cz)], FR);
       // 走廊兩側牆（每個房間一個門）
       const gaps = [];
       for (let i = 0; i < o.rooms; i++) gaps.push(doorGap(rx0 + (i + 0.5) * rw));
-      b.wall(rx0, zc0, x1, zc0, yb, yt, WT, pal.wall, gaps);
-      b.wall(rx0, zc1, x1, zc1, yb, yt, WT, pal.wall, gaps);
+      b.wall(rx0, zc0, x1, zc0, yb, yt, WT, pal.wall, gaps, FR);
+      b.wall(rx0, zc1, x1, zc1, yb, yt, WT, pal.wall, gaps, FR);
       for (let i = 1; i < o.rooms; i++) {
         const px = rx0 + i * rw;
         b.wall(px, z0, px, zc0, yb, yt, WT, pal.wall, []);
@@ -177,6 +284,11 @@ function building(b, o) {
         const dx = rx0 + (i + 0.5) * rw;
         furnishRoom(b, { ax0, ax1, backZ: z0 + WT / 2, backIn: 1, frontZ: zc0 - WT / 2, frontIn: -1, doorX: dx }, yb, pal, o);
         furnishRoom(b, { ax0, ax1, backZ: z1 - WT / 2, backIn: -1, frontZ: zc1 + WT / 2, frontIn: 1, doorX: dx }, yb, pal, o);
+      }
+      for (let i = 1; i < o.rooms; i++) {   // 走廊壁燈（微弱暖光，增添氣氛）
+        const px = rx0 + i * rw;
+        b.boxC(px, yb + 1.85, zc0 + 0.2, 0.2, 0.3, 0.1, '#ffcf7a', false, 0.7);
+        b.boxC(px, yb + 1.85, zc1 - 0.2, 0.2, 0.3, 0.1, '#ffcf7a', false, 0.7);
       }
       b.spots.patrol.push([rx0 + (x1 - rx0) / 2, yb, cz]);
     }
@@ -205,8 +317,7 @@ function building(b, o) {
       b.spots.ped.push({ x: x0 + o.hallW + 12, y: yTop, z: z1 - 1.5 });
       b.spots.frog.push({ x: x1 - 1.0, y: yTop + 0.02, z: z0 + 0.8 });
       b.spots.patrol.push([x0 + o.hallW + 6, yTop, cz]);
-      b.boxC(x0 + o.hallW + 15, yTop, z0 + 4, 2.4, 2.2, 2.4, '#3d4448');
-      addHide(b, 'tank', x0 + o.hallW + 15, yTop, z0 + 4, x0 + o.hallW + 15, z0 + 6.2, 0);
+      mkTank(b, x0 + o.hallW + 15, yTop, z0 + 4);
     }
   } else if (o.roof === 'pitched') {
     b.pyr((x0 + x1) / 2, yTop, (z0 + z1) / 2, (x1 - x0) + 2, (z1 - z0) + 2, o.roofH || 5, pal.roofCol);
@@ -292,9 +403,18 @@ function tree(b, x, z, s = 1, pal) {
   b.pyr(x, 3.4 * s, z, 2.4 * s, 2.4 * s, 2.4 * s, c2);
 }
 function bush(b, x, z, pal) {
-  b.boxC(x, 0, z, 1.5, 1.1, 1.5, (pal && pal.bush) || '#2f6a35', true, 0.10);
-  b.boxC(x, 1.1, z, 1.1, 0.35, 1.1, (pal && pal.bush2) || '#3a7a40', false, 0.08);
-  addHide(b, 'bush', x, 0, z, x, z + 1.7, 0);
+  const c1 = (pal && pal.bush) || '#2f6a35', c2 = (pal && pal.bush2) || '#3a7a40', c3 = '#255a2c', c4 = '#4a8a48';
+  b.colBox(x - 0.9, 0, z - 0.9, x + 0.9, 1.15, z + 0.9);
+  b.boxC(x, 0, z, 1.3, 0.45, 1.3, c3, false, 0.08);
+  // 錯落的低多邊形葉叢（四角錐），比方塊更像灌木
+  const cl = [[0, 0, 0, 1.7, 1.35, c1], [-0.32, 0.28, 0, 1.3, 1.05, c2], [0.36, 0.22, 0, 1.35, 1.0, c3], [0.22, -0.4, 0, 1.25, 1.1, c2],
+    [-0.35, -0.34, 0, 1.15, 0.95, c1], [0.05, 0.05, 0.25, 1.1, 1.3, c4], [-0.5, 0.45, 0, 0.9, 0.7, c3], [0.5, -0.1, 0.1, 0.85, 0.75, c4]];
+  for (const [dx, dz, dy, w, h, c] of cl) b.pyr(x + dx, 0.12 + dy, z + dz, w, w, h, c, 0.09);
+  for (let k = 0; k < 5; k++) {
+    const an = b.rng() * TAU, rr = 0.55 + b.rng() * 0.25;
+    b.boxC(x + Math.cos(an) * rr, 0.5 + b.rng() * 0.55, z + Math.sin(an) * rr, 0.1, 0.1, 0.1, rpick(b.rng, ['#ff8fb0', '#ffe27a', '#ffffff']), false, 0.55);
+  }
+  addHide(b, 'bush', x, 0, z, x, z + 1.8, 0);
 }
 function mound(b, cx, cz, w, d, layers, col, rise = 0.45) {
   for (let i = 0; i < layers; i++) {

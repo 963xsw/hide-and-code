@@ -20,6 +20,10 @@ class Builder {
       col: [c[0] * j, c[1] * j, c[2] * j], solid, emit,
     });
   }
+  /* 只有碰撞、不繪製的方塊（讓外觀可以用多個小方塊拼得更細緻） */
+  colBox(x0, y0, z0, x1, y1, z1) {
+    this.boxes.push({ x0: Math.min(x0, x1), y0: Math.min(y0, y1), z0: Math.min(z0, z1), x1: Math.max(x0, x1), y1: Math.max(y0, y1), z1: Math.max(z0, z1), col: [0, 0, 0], solid: true, emit: 0, novis: true });
+  }
   boxC(cx, y0, cz, w, h, d, col, solid = true, emit = 0) {
     this.box(cx - w / 2, y0, cz - d / 2, cx + w / 2, y0 + h, cz + d / 2, col, solid, emit);
   }
@@ -29,7 +33,7 @@ class Builder {
     this.pyrs.push({ cx, y0, cz, w, d, h, col: [c[0] * j, c[1] * j, c[2] * j], emit });
   }
   /* 沿軸向的牆（含門／窗開口）。gaps: {a,b,y0,y1} 皆為相對牆底的高度與沿牆座標 */
-  wall(x0, z0, x1, z1, yb, yt, th, col, gaps) {
+  wall(x0, z0, x1, z1, yb, yt, th, col, gaps, frame) {
     const alongX = Math.abs(z1 - z0) < 1e-6;
     const a0 = alongX ? Math.min(x0, x1) : Math.min(z0, z1);
     const a1 = alongX ? Math.max(x0, x1) : Math.max(z0, z1);
@@ -50,6 +54,21 @@ class Builder {
       cur = gb;
     }
     put(cur, a1, yb, yt);
+    if (frame) {          // 門框／窗框（不可碰撞的裝飾）
+      const P = 0.07, E = 0.03;
+      for (const g of gs) {
+        const ga = Math.max(g.a, a0), gb = Math.min(g.b, a1);
+        const gy0 = yb + (g.y0 || 0), gy1 = yb + (g.y1 === undefined ? 2.4 : g.y1);
+        const fb = (sa, ea, ya, yb2, ex) => {
+          const e0 = ex || 0;
+          if (alongX) this.box(sa, ya, fixed - th / 2 - E - e0, ea, yb2, fixed + th / 2 + E + e0, frame, false);
+          else this.box(fixed - th / 2 - E - e0, ya, sa, fixed + th / 2 + E + e0, yb2, ea, frame, false);
+        };
+        fb(ga - P, ga, gy0, gy1); fb(gb, gb + P, gy0, gy1);
+        fb(ga - P, gb + P, gy1, gy1 + 0.09);
+        if ((g.y0 || 0) > 0) fb(ga - P, gb + P, gy0 - 0.06, gy0, 0.06);
+      }
+    }
   }
 }
 

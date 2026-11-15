@@ -195,6 +195,7 @@ function updateTags() {
 }
 
 let camPos = { x: 0, y: 0, z: 0 };
+const codeMeshes = new Map();
 function renderFrame(dt) {
   if (!R) return;
   const me = G.me;
@@ -224,8 +225,18 @@ function renderFrame(dt) {
   R.begin(cam, G.flash && !(me.hidden));
   R.drawStatic(G.chunks);
   const t = performance.now() / 1000;
-  // 密碼條
-  G.codes.forEach((c, i) => { const s = b.spots.code[c.spot]; R.drawDyn(MODELS.slip, s.x, s.y, s.z, (s.x * 13.1 + s.z * 7.7) % TAU, 1, 1, 1, { tint: COLORS[i].rgb }); });
+  // 密碼告示牌（微亮的四位數字，顏色對應鎖）
+  G.codes.forEach((c, i) => {
+    const v = G.codeViews[i], val = G.codeVals[i]; if (!v || !val) return;
+    let mesh = codeMeshes.get(val);
+    if (!mesh) { mesh = buildCodeMesh(R, val); codeMeshes.set(val, mesh); if (codeMeshes.size > 24) { const k = codeMeshes.keys().next().value; R.freeMesh(codeMeshes.get(k)); codeMeshes.delete(k); } }
+    const pulse = 0.05 * Math.sin(t * 2 + i * 1.7);
+    R.drawDyn(mesh, v.px, v.y, v.pz, v.yaw, 1, 1, 1, { tint: COLORS[i].rgb, emit: pulse, maxDist: 18 });
+    if (v.y - v.fy < 1.05) {
+      R.drawDyn(MODELS.codePost, v.px, v.y - 0.13, v.pz, v.yaw, 1, Math.max(0.05, v.y - 0.13 - v.fy), 1, { maxDist: 18 });
+      R.drawDyn(MODELS.codeFoot, v.px, v.fy, v.pz, v.yaw, 1, 1, 1, { maxDist: 18 });
+    }
+  });
   // 鎖
   G.locks.forEach((l, i) => {
     const s = b.spots.lock[l.spot];
